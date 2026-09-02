@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sistema Assistivo &mdash; Painel</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Sistema Assistivo para Deficientes Visuais</h1>
+    <div class="badges">
+      <span class="badge" id="badge-detector">detector: &mdash;</span>
+      <span class="badge" id="badge-tts">tts: &mdash;</span>
+      <span class="badge" id="badge-stt">stt: &mdash;</span>
+      <span class="badge" id="badge-conn" data-state="off">desconectado</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel panel-video">
+      <div class="panel-head">
+        <h2>Visao da camera</h2>
+        <select id="device-select" aria-label="Dispositivo"></select>
+      </div>
+      <div class="video-wrap">
+        <img id="preview" alt="Previa da camera com as deteccoes desenhadas" />
+        <p class="video-empty" id="video-empty">Aguardando quadros do dispositivo&hellip;</p>
+      </div>
+      <div class="metrics" id="metrics">
+        <div class="metric"><span class="metric-value" id="m-fps">0</span><span class="metric-label">quadros/s</span></div>
+        <div class="metric"><span class="metric-value" id="m-inference">0</span><span class="metric-label">inferencia (ms)</span></div>
+        <div class="metric"><span class="metric-value" id="m-latency">0</span><span class="metric-label">fim a fim (ms)</span></div>
+        <div class="metric"><span class="metric-value" id="m-objects">0</span><span class="metric-label">objetos</span></div>
+        <div class="metric"><span class="metric-value" id="m-drops">0</span><span class="metric-label">descartados</span></div>
+      </div>
+    </section>
+
+    <section class="panel panel-side">
+      <div class="zone" id="zone" data-zone="safe">
+        <span class="zone-label">zona de proximidade</span>
+        <strong class="zone-value" id="zone-value">livre</strong>
+        <span class="zone-distance" id="zone-distance">sonar: &mdash;</span>
+      </div>
+
+      <div class="controls">
+        <button type="button" id="btn-start" class="btn">Iniciar / Pausar</button>
+        <button type="button" id="btn-voldown" class="btn btn-small">Vol &minus;</button>
+        <span class="volume" id="volume">7</span>
+        <button type="button" id="btn-volup" class="btn btn-small">Vol +</button>
+        <label class="switch">
+          <input type="checkbox" id="chk-audio" checked />
+          <span>reproduzir audio aqui</span>
+        </label>
+      </div>
+
+      <form class="command" id="command-form">
+        <label for="command-input">Comando de voz (digitado)</label>
+        <div class="command-row">
+          <input
+            id="command-input"
+            type="text"
+            autocomplete="off"
+            placeholder="ex.: o que tem na minha frente?" />
+          <button type="submit" class="btn">Enviar</button>
+        </div>
+        <div class="suggestions" id="suggestions"></div>
+      </form>
+
+      <div class="panel-block">
+        <h2>Objetos detectados</h2>
+        <ul class="detections" id="detections"><li class="muted">nenhum</li></ul>
+      </div>
+    </section>
+
+    <section class="panel panel-log">
+      <div class="panel-head">
+        <h2>Falas e eventos</h2>
+        <button type="button" id="btn-clear" class="btn btn-small">limpar</button>
+      </div>
+      <ol class="log" id="log"></ol>
+    </section>
+  </main>
+
+  <audio id="player" preload="none"></audio>
+  <script src="/static/app.js"></script>
+</body>
+</html>

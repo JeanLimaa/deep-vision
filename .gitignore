@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+server/.pytest_cache/
+server/.ruff_cache/
+*.egg-info/
+
+# Modelos e datasets (pesados)
+models/*.pt
+models/*.onnx
+datasets/**/images/
+datasets/**/labels/
+runs/
+
+# Artefatos de execucao
+server/var/
+*.log
+.env
+
+# PlatformIO
+firmware/**/.pio/
+firmware/**/.vscode/
+firmware/esp32cam/include/secrets.h
+
+# SO
+Thumbs.db
+.DS_Store

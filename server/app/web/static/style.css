@@ -1,0 +1,231 @@
+/* Painel de monitoramento. Tema escuro para nao ofuscar durante os testes
+   noturnos de baixa luminosidade descritos na Secao 6 do TCC. */
+
+:root {
+  --bg: #10131a;
+  --panel: #171b24;
+  --panel-2: #1e2430;
+  --line: #2a3140;
+  --text: #e6eaf2;
+  --muted: #8d97ad;
+  --accent: #4da3ff;
+  --safe: #46c07b;
+  --warning: #f0b429;
+  --critical: #f2555a;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.topbar h1 { font-size: 17px; margin: 0; font-weight: 600; }
+
+.badges { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.badge[data-state="on"] { color: var(--safe); border-color: #24513a; }
+.badge[data-state="off"] { color: var(--critical); border-color: #4d2427; }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-areas: "video side" "log side";
+  gap: 16px;
+  padding: 16px 20px 28px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; grid-template-areas: "video" "side" "log"; }
+}
+
+.panel-video { grid-area: video; }
+.panel-side { grid-area: side; }
+.panel-log { grid-area: log; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.panel-head h2 { margin: 0 0 10px; }
+
+.video-wrap {
+  position: relative;
+  background: #05070b;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-wrap img { width: 100%; display: block; }
+.video-wrap img[hidden] { display: none; }
+
+.video-empty { color: var(--muted); font-size: 14px; margin: 0; padding: 60px 0; }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.metric {
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.metric-value { display: block; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric-label { font-size: 11px; color: var(--muted); }
+
+.zone {
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.zone[data-zone="safe"] { border-color: #24513a; }
+.zone[data-zone="warning"] { border-color: #5c4715; }
+.zone[data-zone="critical"] { border-color: #5c2326; animation: pulse 1s ease-in-out infinite; }
+
+@keyframes pulse { 50% { background: #2a1a1c; } }
+
+.zone-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.zone-value { display: block; font-size: 22px; margin: 4px 0; }
+.zone[data-zone="safe"] .zone-value { color: var(--safe); }
+.zone[data-zone="warning"] .zone-value { color: var(--warning); }
+.zone[data-zone="critical"] .zone-value { color: var(--critical); }
+.zone-distance { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-small { padding: 6px 10px; font-size: 13px; }
+
+.volume { font-variant-numeric: tabular-nums; min-width: 22px; text-align: center; color: var(--muted); }
+
+.switch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); width: 100%; }
+
+.command label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.command-row { display: flex; gap: 8px; }
+
+.command input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.command input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.suggestions button {
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.suggestions button:hover { color: var(--accent); border-color: var(--accent); }
+
+.panel-block { margin-top: 18px; }
+
+.detections { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.detections li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.detections .muted { color: var(--muted); background: transparent; }
+.detections .dist { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.log li {
+  display: grid;
+  grid-template-columns: 62px 92px 1fr;
+  gap: 10px;
+  padding: 5px 4px;
+  border-bottom: 1px solid #1f2531;
+}
+
+.log .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log .kind { color: var(--muted); font-size: 12px; }
+.log li[data-kind="speech"] .text { color: var(--accent); }
+.log li[data-kind="alert"] .text { color: var(--warning); }
+.log li[data-kind="critical"] .text { color: var(--critical); font-weight: 600; }
+.log li[data-kind="command"] .text { color: var(--safe); }
