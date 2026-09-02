@@ -116,7 +116,9 @@ class WebSocketTransport : public Transport {
     if (!_connected) {
       return false;
     }
-    return _client.sendTXT(telemetryJson(distanceCm, zone, volumeStep, false));
+    // sendTXT recebe String& (nao const), entao o payload precisa de um lvalue.
+    String payload = telemetryJson(distanceCm, zone, volumeStep, false);
+    return _client.sendTXT(payload);
   }
 
   bool sendButton(const char* button, bool longPress) override {

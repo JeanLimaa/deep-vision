@@ -44,8 +44,12 @@ uint32_t g_lastStatusMs = 0;
 
 void setStatusLed(bool on) {
 #if PIN_STATUS_LED >= 0
-  // O LED embutido da AI-Thinker acende com nivel baixo.
+  // A polaridade do LED embutido muda de placa para placa (ver pins.h).
+#if STATUS_LED_ACTIVE_LOW
   digitalWrite(PIN_STATUS_LED, on ? LOW : HIGH);
+#else
+  digitalWrite(PIN_STATUS_LED, on ? HIGH : LOW);
+#endif
 #endif
 }
 

@@ -4,6 +4,12 @@
 #include "pins.h"
 
 bool Camera::begin() {
+#if !HAS_CAMERA
+  // Placa de bancada sem camera. O restante do sistema segue normalmente: o
+  // sonar e os botoes continuam funcionando e o video vem do simulador.
+  Serial.println("[camera] placa sem camera (HAS_CAMERA=0)");
+  return false;
+#else
   _hasPsram = psramFound();
 
   camera_config_t config = {};
@@ -56,6 +62,7 @@ bool Camera::begin() {
   _ready = true;
   Serial.printf("[camera] pronta (psram=%s)\n", _hasPsram ? "sim" : "nao");
   return true;
+#endif
 }
 
 void Camera::applySensorTuning() {
