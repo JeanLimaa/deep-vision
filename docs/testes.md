@@ -1,3 +1,12 @@
+:: terminal 1 — servidor
+cd server
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+:: terminal 2 — dispositivo virtual, na raiz do projeto
+server\.venv\Scripts\python simulator\virtual_device.py --source 0 --interactive
+
+server\.venv\Scripts\python simulator\virtual_device.py --source 0 --preview --sonar clear
+
 # Roteiro de validação
 
 Procedimentos para levantar os dados quantitativos que a metodologia do TCC

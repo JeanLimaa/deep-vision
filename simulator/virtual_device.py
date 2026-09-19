@@ -14,8 +14,8 @@ Exemplos:
     # cena sintetica + sonar oscilante, por WebSocket
     python simulator/virtual_device.py
 
-    # webcam do notebook como camera da borda
-    python simulator/virtual_device.py --source 0
+    # webcam do notebook como camera da borda, com janela de preview
+    python simulator/virtual_device.py --source 0 --preview
 
     # arquivo de video, no transporte HTTP descrito no artigo
     python simulator/virtual_device.py --source ruas.mp4 --transport http
@@ -42,6 +42,16 @@ import numpy as np
 
 FRAME_MAGIC_IMAGE = 0x01
 BINARY_HEADER = struct.Struct(">BQQ")
+
+# --- controle de taxa ---
+# O servidor descarta quadros quando a inferencia nao acompanha (o limitador de
+# vision.max_inference_fps). Insistir na taxa cheia so gasta Wi-Fi e bateria sem
+# produzir uma deteccao a mais, entao o dispositivo recua rapido e volta devagar.
+# E o comportamento que o firmware deve ter na placa; aqui ele e exercitado.
+BACKOFF_FACTOR = 1.25       # recuo a cada quadro descartado
+RECOVER_FACTOR = 0.92       # avanco, depois de uma sequencia limpa
+RECOVER_AFTER_ACKS = 8      # quadros aceitos seguidos antes de acelerar
+MAX_INTERVAL_S = 1.0        # piso de 1 quadro/s, mesmo saturado
 
 
 def now_ms() -> int:
@@ -187,7 +197,15 @@ class SimulatedDevice:
         self.sequence = 0
         self.jpeg_params = [int(cv2.IMWRITE_JPEG_QUALITY), args.quality]
         self.running = True
-        self.stats = {"sent": 0, "spoken": 0, "tones": 0}
+        self.stats = {"sent": 0, "spoken": 0, "tones": 0, "dropped": 0}
+
+        # Intervalo pedido na linha de comando; "floor" e o menor intervalo
+        # permitido, apertado quando o servidor anuncia seu proprio teto.
+        self.target_interval = 1.0 / args.fps
+        self.floor_interval = self.target_interval
+        self.interval = self.target_interval
+        self._clean_acks = 0
+        self._preview_window = f"simulador -- {args.device_id} (q para sair)"
 
     # ------------------------------------------------------------- utilitarios
 
@@ -199,6 +217,44 @@ class SimulatedDevice:
         self.sequence += 1
         return buffer.tobytes()
 
+    def pump_preview(self, jpeg: bytes) -> None:
+        """Janela local com o quadro exatamente como o servidor vai receber.
+
+        Mostra o JPEG ja codificado e decodificado de volta, e nao o que a
+        webcam entregou: a perda de ``--quality`` e a reducao de ``--width``
+        aparecem aqui. E o que o detector enxerga.
+
+        O painel web (`/api/v1/media/preview.mjpg`) mostra o mesmo quadro ja
+        com as caixas desenhadas; esta janela existe para separar "a camera
+        esta ruim" de "o detector esta errando".
+        """
+        if not self.args.preview:
+            return
+        image = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return
+
+        label = f"seq={self.sequence}  {len(jpeg) / 1024:.1f} kB  {image.shape[1]}x{image.shape[0]}"
+        cv2.rectangle(image, (0, 0), (image.shape[1], 24), (0, 0, 0), -1)
+        cv2.putText(
+            image, label, (8, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 230, 0), 1, cv2.LINE_AA
+        )
+        try:
+            cv2.imshow(self._preview_window, image)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                self.running = False
+        except cv2.error as exc:
+            # Instalacao headless do OpenCV: segue sem janela em vez de morrer.
+            print(f"[simulador] preview indisponivel ({exc}); continuando sem janela")
+            self.args.preview = False
+
+    def close_preview(self) -> None:
+        if self.args.preview:
+            try:
+                cv2.destroyWindow(self._preview_window)
+            except cv2.error:
+                pass
+
     def telemetry_payload(self) -> dict:
         return {
             "type": "telemetry",
@@ -208,6 +264,33 @@ class SimulatedDevice:
             "uptime_ms": now_ms() % 10_000_000,
             "firmware": "simulator-0.1.0",
         }
+
+    def note_ack(self, dropped: bool) -> None:
+        """Ajusta a taxa de envio conforme o servidor consegue ou nao acompanhar.
+
+        Recuo multiplicativo, recuperacao gradual: um unico descarte ja reduz a
+        taxa, mas voltar a acelerar exige uma sequencia limpa. Evita oscilar em
+        volta do limite do servidor.
+        """
+        if not self.args.backpressure:
+            return
+
+        if dropped:
+            self.stats["dropped"] += 1
+            self._clean_acks = 0
+            adjusted = min(MAX_INTERVAL_S, self.interval * BACKOFF_FACTOR)
+        else:
+            self._clean_acks += 1
+            if self._clean_acks < RECOVER_AFTER_ACKS:
+                return
+            self._clean_acks = 0
+            adjusted = max(self.floor_interval, self.interval * RECOVER_FACTOR)
+
+        if abs(adjusted - self.interval) < 1e-6:
+            return
+        self.interval = adjusted
+        if self.args.verbose:
+            print(f"  .. taxa ajustada para {1.0 / self.interval:.1f} quadros/s")
 
     def on_action(self, action: dict) -> None:
         """Como o firmware reagiria a uma acao vinda do servidor."""
@@ -223,6 +306,12 @@ class SimulatedDevice:
             print(f"  ~~ BIPE: {action.get('tone')}")
         elif kind == "config":
             print(f"  .. config do servidor: {action}")
+            # O servidor anuncia quantos quadros por segundo ele consegue
+            # inferir. Mandar acima disso e desperdicio garantido.
+            max_fps = action.get("max_fps")
+            if max_fps:
+                self.floor_interval = max(self.target_interval, 1.0 / float(max_fps))
+                self.interval = max(self.interval, self.floor_interval)
 
     # -------------------------------------------------------------- WebSocket
 
@@ -244,13 +333,14 @@ class SimulatedDevice:
             )
 
     async def _send_frames(self, socket) -> None:
-        interval = 1.0 / self.args.fps
         while self.running:
             jpeg = await asyncio.to_thread(self.next_jpeg)
             header = BINARY_HEADER.pack(FRAME_MAGIC_IMAGE, self.sequence, now_ms())
             await socket.send(header + jpeg)
             self.stats["sent"] += 1
-            await asyncio.sleep(interval)
+            self.pump_preview(jpeg)
+            # Lido a cada volta: o ack pode ter mudado o intervalo no meio do sono.
+            await asyncio.sleep(self.interval)
 
     async def _send_telemetry(self, socket) -> None:
         interval = 1.0 / self.args.sonar_hz
@@ -266,6 +356,7 @@ class SimulatedDevice:
                 continue
             payload = json.loads(message)
             if payload.get("type") == "frame_ack":
+                self.note_ack(bool(payload.get("dropped")))
                 if self.args.verbose:
                     print(f"  .. ack seq={payload['sequence']} objs={payload['objects']}")
             else:
@@ -309,11 +400,11 @@ class SimulatedDevice:
 
         base = self.args.server.rstrip("/")
         print(f"[simulador] enviando quadros por HTTP POST para {base}")
-        interval = 1.0 / self.args.fps
         telemetry_every = max(1, int(self.args.fps / self.args.sonar_hz))
 
         while self.running:
             jpeg = await asyncio.to_thread(self.next_jpeg)
+            self.pump_preview(jpeg)
             try:
                 response = await asyncio.to_thread(self._post_frame, base, jpeg)
             except urllib.error.URLError as exc:
@@ -322,6 +413,7 @@ class SimulatedDevice:
                 continue
 
             self.stats["sent"] += 1
+            self.note_ack(bool(response.get("dropped")))
             for action in response.get("actions", []):
                 self.on_action(action)
             if self.args.verbose and not response.get("dropped"):
@@ -338,7 +430,7 @@ class SimulatedDevice:
                 except urllib.error.URLError:
                     pass
 
-            await asyncio.sleep(interval)
+            await asyncio.sleep(self.interval)
 
     def _post_frame(self, base: str, jpeg: bytes) -> dict:
         import urllib.request
@@ -381,10 +473,12 @@ class SimulatedDevice:
             else:
                 await self.run_http()
         finally:
+            self.close_preview()
             self.source.close()
             print(
                 f"[simulador] encerrado | quadros={self.stats['sent']} "
-                f"falas={self.stats['spoken']}"
+                f"descartados={self.stats['dropped']} falas={self.stats['spoken']} "
+                f"taxa final={1.0 / self.interval:.1f}/s"
             )
 
 
@@ -399,7 +493,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="'synthetic', indice da webcam (ex.: 0), arquivo de video ou pasta de imagens",
     )
     parser.add_argument("--transport", choices=("ws", "http"), default="ws")
-    parser.add_argument("--fps", type=float, default=6.0, help="Quadros por segundo enviados")
+    # Os padroes abaixo espelham firmware/esp32cam/include/config.h de proposito:
+    # FRAMESIZE_VGA (640x480), FRAME_INTERVAL_MS 125 (8 quadros/s) e
+    # CAMERA_JPEG_QUALITY 12, que na escala do OV2640 (10 melhor .. 63 pior)
+    # equivale a uma qualidade alta -- ~88 na escala do OpenCV. Medir com o
+    # simulador so vale se ele entregar o mesmo quadro que a placa entregaria.
+    parser.add_argument("--fps", type=float, default=8.0, help="Quadros por segundo enviados")
     parser.add_argument("--sonar-hz", type=float, default=5.0, dest="sonar_hz")
     parser.add_argument(
         "--sonar",
@@ -409,9 +508,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
-    parser.add_argument("--quality", type=int, default=70, help="Qualidade JPEG (1-100)")
+    parser.add_argument("--quality", type=int, default=88, help="Qualidade JPEG (1-100)")
     parser.add_argument(
         "--interactive", action="store_true", help="Habilita os botoes pelo teclado"
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Abre uma janela com o quadro que esta sendo enviado",
+    )
+    parser.add_argument(
+        "--no-backpressure",
+        dest="backpressure",
+        action="store_false",
+        help="Mantem a taxa fixa mesmo com quadros descartados (para comparacao)",
     )
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args(argv)

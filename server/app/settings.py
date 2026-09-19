@@ -30,13 +30,22 @@ class VisionSettings(BaseModel):
     # "yolo" usa ultralytics; "fake" gera deteccoes sinteticas (sem dependencias
     # pesadas) e serve para rodar/testar o sistema inteiro sem GPU nem modelo.
     backend: Literal["yolo", "fake", "auto"] = "auto"
-    model_path: str = "yolov8n.pt"
+    # "auto" escolhe os pesos pelo dispositivo: o maior modelo que ainda sustenta
+    # a taxa alvo em CPU, ou um mais preciso quando ha GPU. A tabela de tempos
+    # esta em vision/yolo_detector.py e em docs/configuracao.md. Para fixar,
+    # aponte AVS_VISION__MODEL_PATH para um arquivo (ex.: yolo11n.pt).
+    model_path: str = "auto"
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
-    confidence_threshold: float = 0.40
+    # 0.40 deixa passar falso positivo demais: objeto alongado na mao vira
+    # "toothbrush", textura de pele vira "cat". 0.50 corta esse ruido sem
+    # perder os objetos de interesse.
+    confidence_threshold: float = 0.50
     iou_threshold: float = 0.45
     max_detections: int = 20
-    # Resolucao de entrada da rede. Multiplo de 32.
-    inference_size: int = 480
+    # Resolucao de entrada da rede. Multiplo de 32. E a resolucao em que os
+    # modelos YOLO foram treinados: abaixo dela a acuracia cai visivelmente, e
+    # o quadro VGA da OV2640 (640x480) chega sem precisar ser reamostrado.
+    inference_size: int = 640
     # Classes ignoradas na narracao (ruido para o usuario final).
     ignored_labels: list[str] = Field(default_factory=list)
     # Numero maximo de quadros por segundo efetivamente inferidos por dispositivo.
@@ -74,7 +83,13 @@ class TrackingSettings(BaseModel):
     # Quadros consecutivos sem deteccao antes de descartar o rastro.
     max_misses: int = 8
     # Deteccoes consecutivas antes de considerar o objeto confirmado.
-    min_hits: int = 2
+    #
+    # E o filtro de falso positivo mais barato que existe aqui, e vale mais que
+    # subir a confianca: o rastro so e narrado depois de min_hits quadros com o
+    # MESMO rotulo na MESMA regiao. A 8 quadros/s, 4 acertos sao meio segundo --
+    # nada para um objeto real, muito para o ruido de um quadro so que produz
+    # "toothbrush" ou "cat". Baixar para 2 devolve o comportamento antigo.
+    min_hits: int = 4
 
 
 class ProximitySettings(BaseModel):

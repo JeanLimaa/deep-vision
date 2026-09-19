@@ -26,12 +26,12 @@ Listas usam sintaxe JSON.
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `AVS_VISION__BACKEND` | `auto` | `yolo`, `fake` ou `auto` (tenta YOLO, cai para `fake`) |
-| `AVS_VISION__MODEL_PATH` | `yolov8n.pt` | procurado em `models/` antes de baixar |
+| `AVS_VISION__MODEL_PATH` | `auto` | escolhe os pesos pelo dispositivo (ver abaixo); um caminho fixa o modelo, procurado em `models/` antes de baixar |
 | `AVS_VISION__DEVICE` | `auto` | `cpu`, `cuda`, `mps` |
-| `AVS_VISION__CONFIDENCE_THRESHOLD` | `0.40` | confiança mínima |
+| `AVS_VISION__CONFIDENCE_THRESHOLD` | `0.50` | confiança mínima; abaixo de 0,45 aparecem falsos positivos com rótulo plausível |
 | `AVS_VISION__IOU_THRESHOLD` | `0.45` | supressão de não-máximos |
 | `AVS_VISION__MAX_DETECTIONS` | `20` | objetos por quadro |
-| `AVS_VISION__INFERENCE_SIZE` | `480` | lado maior da entrada da rede (múltiplo de 32) |
+| `AVS_VISION__INFERENCE_SIZE` | `640` | lado maior da entrada da rede (múltiplo de 32); é a resolução de treino do YOLO |
 | `AVS_VISION__IGNORED_LABELS` | `[]` | classes que nunca são narradas |
 | `AVS_VISION__MAX_INFERENCE_FPS` | `8.0` | teto de quadros inferidos por segundo; `0` = sem limite |
 | `AVS_VISION__WARMUP_ON_STARTUP` | `true` | tira a primeira inferência do caminho crítico |
@@ -47,6 +47,85 @@ Listas usam sintaxe JSON.
 
 Trocou a lente? Ajuste `HORIZONTAL_FOV_DEG` — é o parâmetro que mais afeta a
 precisão da distância estimada.
+
+### Escolha do modelo
+
+`MODEL_PATH=auto` (padrão) resolve os pesos pelo dispositivo detectado:
+
+| Dispositivo | Pesos | Motivo |
+|---|---|---|
+| `cpu` | `yolo11s.pt` | maior porte que ainda sustenta a taxa alvo |
+| `cuda` | `yolo11l.pt` | 3× de folga sobre o teto, por 0,33 GB de VRAM |
+| `mps` | `yolo11m.pt` | não medido; escolha conservadora |
+
+Tempo por quadro medido nesta máquina — CPU de 6 threads e GeForce GTX 1650
+(4 GB, compute 7.5), entrada 640×480, `imgsz=640`:
+
+| Pesos | CPU | GPU | Taxa GPU | COCO mAP50-95 | VRAM |
+|---|---|---|---|---|---|
+| `yolo11n.pt` | 46 ms | 13 ms | 76 /s | 39,5 | |
+| **`yolo11s.pt`** | **93 ms** | **17 ms** | **60 /s** | **47,0** | |
+| `yolo11m.pt` | 226 ms | 34 ms | 29 /s | 51,5 | 0,22 GB |
+| **`yolo11l.pt`** | 278 ms | **42 ms** | **24 /s** | **53,4** | 0,33 GB |
+| `yolo11x.pt` | — | 79 ms | 13 /s | 54,7 | 0,64 GB |
+| `yolov8s.pt` | 90 ms | — | | 44,9 | |
+| `yolov8m.pt` | 207 ms | — | | 50,2 | |
+
+A família 11 custa o mesmo da 8 em cada porte e acerta mais — não há razão para
+ficar na 8.
+
+O critério de escolha é **folga sobre `MAX_INFERENCE_FPS` (8 /s, a taxa que a
+placa envia)**, não a taxa máxima possível. Em CPU o porte `m` fica em 4,4 /s,
+abaixo do teto, e acumularia fila. Em GPU o `x` custaria o dobro do tempo do `l`
+por 1,3 ponto de mAP, e derrubaria a folga de 3× para 1,6× — pouco para uma
+demonstração ao vivo, em que a mesma GPU também desenha a tela.
+
+VRAM não é o limite: mesmo o `x` reserva 0,64 GB dos 4,3 GB da placa.
+
+**Build CUDA do PyTorch** (o índice padrão do PyPI instala a versão só-CPU):
+
+```bat
+cd server
+uv pip install --index-url https://download.pytorch.org/whl/cu126 ^
+  --reinstall-package torch --reinstall-package torchvision ^
+  torch==2.13.0+cu126 torchvision==0.28.0+cu126
+```
+
+Para fixar um modelo, aponte o arquivo:
+
+```
+AVS_VISION__MODEL_PATH=yolo11n.pt     # máquina fraca
+AVS_VISION__MODEL_PATH=models/best.pt # pesos refinados por training/train.py
+```
+
+### Se o detector errar o rótulo
+
+Na ordem em que vale testar:
+
+1. `INFERENCE_SIZE` abaixo de 640 — o quadro é reduzido antes da inferência
+   (`pipeline/orchestrator.py`) *e* pelo próprio YOLO; abaixo da resolução de
+   treino a queda é visível;
+2. `CONFIDENCE_THRESHOLD` baixo — a 0,40 o `yolov8n` produz um fluxo de falsos
+   positivos de um quadro só, com rótulos plausíveis (`toothbrush` para objeto
+   alongado na mão, `cat` para textura de pele);
+3. `AVS_PREPROCESS__CLAHE=false` — o realce de contraste existe para o cenário
+   de baixa luminosidade da Seção 6; com iluminação boa ele adiciona contraste
+   local que o modelo não viu no treino. Vale medir com e sem;
+4. `AVS_TRACKING__MIN_HITS` — quantos quadros consecutivos o mesmo rótulo
+   precisa aparecer na mesma região antes de virar fala. É o filtro de falso
+   positivo mais barato do pipeline, e costuma valer mais que subir a
+   confiança: a 8 quadros/s, o padrão de 4 são meio segundo, nada para um
+   objeto real e muito para o ruído de um quadro só;
+5. `AVS_VISION__IGNORED_LABELS` — silencia classes que só produzem ruído no
+   ambiente de teste, sem mexer no detector.
+
+### Fazendo o simulador valer como medida
+
+Os padrões do `simulator/virtual_device.py` espelham
+`firmware/esp32cam/include/config.h`: **640×480** (`FRAMESIZE_VGA`), **8
+quadros/s** (`FRAME_INTERVAL_MS 125`) e qualidade JPEG equivalente à
+`CAMERA_JPEG_QUALITY 12` do OV2640. Medida feita com outros valores não
+descreve o que a placa vai entregar — se mudar um, registre no texto.
 
 ## Pré-processamento
 

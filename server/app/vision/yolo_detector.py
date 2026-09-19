@@ -29,8 +29,37 @@ def _resolve_device(requested: str) -> str:
     return "cpu"
 
 
-def _resolve_model_path(model_path: str) -> str:
+# Pesos escolhidos quando ``model_path`` e "auto". Tempo por quadro medido com
+# entrada 640x480 e imgsz=640 (CPU de 6 threads / GTX 1650, media de 12-15):
+#
+#     pesos      CPU        GPU     mAP50-95   VRAM (pico)
+#     yolo11n     46 ms     13 ms     39,5
+#     yolo11s     93 ms     17 ms     47,0
+#     yolo11m    226 ms     34 ms     51,5      0,22 GB
+#     yolo11l    278 ms     42 ms     53,4      0,33 GB
+#     yolo11x      --       79 ms     54,7      0,64 GB
+#
+# A familia 11 custa o mesmo da 8 em cada porte e acerta mais (47,0 contra 44,9
+# no porte "s"), entao nao ha motivo para ficar na 8.
+#
+# O criterio e folga sobre o teto de max_inference_fps (8 quadros/s, a taxa que
+# a placa envia). Em CPU o "s" da 11 /s -- o "m", 4,4 /s, ja acumularia fila.
+# Em GPU o "l" da 24 /s (folga de 3x) por 0,33 GB de VRAM; o "x" custa o dobro
+# do tempo para 1,3 ponto de mAP e derrubaria a folga para 1,6x, que e pouco
+# para uma demonstracao ao vivo.
+AUTO_MODEL_BY_DEVICE = {
+    "cpu": "yolo11s.pt",
+    "cuda": "yolo11l.pt",
+    # Nao medido aqui: escolha conservadora, um porte abaixo do de CUDA.
+    "mps": "yolo11m.pt",
+}
+
+
+def _resolve_model_path(model_path: str, device: str) -> str:
     """Procura o arquivo de pesos em ``models/`` antes de deixar o ultralytics baixar."""
+    if model_path == "auto":
+        model_path = AUTO_MODEL_BY_DEVICE.get(device, AUTO_MODEL_BY_DEVICE["cpu"])
+        log.info("Pesos escolhidos automaticamente para '%s': %s", device, model_path)
     candidate = Path(model_path)
     if candidate.is_absolute() and candidate.exists():
         return str(candidate)
@@ -50,7 +79,8 @@ class YoloDetector:
 
         self._settings = settings
         self._device = _resolve_device(settings.device)
-        self._model = YOLO(_resolve_model_path(settings.model_path))
+        self.model_path = _resolve_model_path(settings.model_path, self._device)
+        self._model = YOLO(self.model_path)
         self._lock = threading.Lock()
         self._ready = False
         self._names: dict[int, str] = dict(self._model.names or {})

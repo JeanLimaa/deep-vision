@@ -44,7 +44,7 @@ def build_detector(settings: VisionSettings) -> ObjectDetector:
             from app.vision.yolo_detector import YoloDetector
 
             detector = YoloDetector(settings)
-            log.info("Detector YOLO carregado (%s)", settings.model_path)
+            log.info("Detector YOLO carregado (%s em %s)", detector.model_path, detector.device)
             return detector
         except Exception as exc:  # noqa: BLE001 - fallback deliberado
             if backend == "yolo":
