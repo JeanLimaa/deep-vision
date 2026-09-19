@@ -211,6 +211,11 @@ void setup() {
   setStatusLed(false);
 #endif
 
+#if defined(PIN_FLASH_LED)
+  pinMode(PIN_FLASH_LED, OUTPUT);
+  digitalWrite(PIN_FLASH_LED, LOW);
+#endif
+
   g_buzzer.begin();
   g_sonar.begin();
   g_buttons.begin();

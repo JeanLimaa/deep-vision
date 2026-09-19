@@ -104,6 +104,10 @@
 #define PIN_STATUS_LED 33       // LED vermelho embutido
 #define STATUS_LED_ACTIVE_LOW 1  // acende com nivel baixo
 
+// LED de flash. Solto, o GPIO capta ruido e o transistor do LED conduz um
+// pouco: brilho fraco e oscilante, e corrente desperdicada. Mantido em nivel baixo.
+#define PIN_FLASH_LED 4
+
 // Botao unico ligado direto ao ESP32 (perfil esp32cam).
 // GPIO 2 aceita pull-up interno; nao o mantenha pressionado durante o boot.
 #define PIN_BTN_START_STOP 2
