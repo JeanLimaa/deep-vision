@@ -56,6 +56,7 @@ void setStatusLed(bool on) {
 void connectWiFi() {
   Serial.printf("[wifi] conectando em %s\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_TX_POWER);  // limita o pico de corrente (ver config.h)
   WiFi.setSleep(false);  // o modo de economia adiciona centenas de ms de latencia
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 

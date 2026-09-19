@@ -32,6 +32,7 @@ class Ultrasonic {
   static void IRAM_ATTR onEchoChange();
 
   void startPing();
+  void pushSample(float cm);
   float median();
 
   uint8_t _trigPin;
@@ -42,6 +43,7 @@ class Ultrasonic {
   uint8_t _sampleCount = 0;
   uint8_t _sampleIndex = 0;
   float _filtered = NAN;
+  bool _awaitingEcho = false;  // disparo feito, eco ainda nao contabilizado
 
   // Estado compartilhado com a rotina de interrupcao.
   static Ultrasonic* _instance;

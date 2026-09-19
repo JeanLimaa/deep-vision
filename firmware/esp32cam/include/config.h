@@ -61,6 +61,11 @@
 #define BUTTON_LONG_PRESS_MS 900
 
 // --- Rede ---
+// Potencia maxima de transmissao. O padrao (19,5 dBm) puxa picos que derrubam a
+// ESP32-CAM alimentada por USB + protoboard ("Brownout detector was triggered").
+// 13 dBm corta o pico e ainda sobra alcance para um roteador no mesmo comodo;
+// se o RSSI no log ficar abaixo de -75 dBm, suba para WIFI_POWER_15dBm.
+#define WIFI_TX_POWER WIFI_POWER_13dBm
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define RECONNECT_INTERVAL_MS 3000
 #define WS_HEARTBEAT_MS 15000
