@@ -25,8 +25,10 @@ Listas usam sintaxe JSON.
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `AVS_VISION__BACKEND` | `auto` | `yolo`, `fake` ou `auto` (tenta YOLO, cai para `fake`) |
-| `AVS_VISION__MODEL_PATH` | `auto` | escolhe os pesos pelo dispositivo (ver abaixo); um caminho fixa o modelo, procurado em `models/` antes de baixar |
+| `AVS_VISION__BACKEND` | `yolo` | `yolo` (se o modelo não carregar, o servidor **não sobe** e diz por quê), `fake` (detector simulado) ou `auto` (tenta YOLO e cai para o simulado, com tarja vermelha no vídeo) |
+| `AVS_VISION__MODEL_PATH` | `auto` | escolhe os pesos pelo dispositivo (ver abaixo); um caminho fixa o modelo, procurado em `models/` e baixado para lá se faltar |
+| `AVS_VISION__EXTRA_MODEL_PATHS` | `[]` | modelos que rodam ao lado do principal e só **acrescentam** classes que ele não tem (ex.: o modelo de degraus e portas treinado em `training/`) |
+| `AVS_VISION__ALLOWED_LABELS` | perfil de mobilidade | classes que o detector pode reportar (lista em `app/vision/labels.py`); `[]` libera todas |
 | `AVS_VISION__DEVICE` | `auto` | `cpu`, `cuda`, `mps`, `directml` (GPU AMD/Intel no Windows); `auto` tenta nessa ordem: CUDA, MPS, DirectML, CPU |
 | `AVS_VISION__CONFIDENCE_THRESHOLD` | `0.35` | confiança mínima; o ruído de quadro único é cortado pelo rastreador (`MIN_HITS`) |
 | `AVS_VISION__IOU_THRESHOLD` | `0.45` | supressão de não-máximos |
@@ -54,34 +56,43 @@ precisão da distância estimada.
 
 | Dispositivo | Pesos | Motivo |
 |---|---|---|
-| `cpu` | `yolo11s.pt` | maior porte que ainda sustenta a taxa alvo |
-| `cuda` | `yolo11l.pt` | 3× de folga sobre o teto, por 0,33 GB de VRAM |
-| `directml` | `yolo11l.pt` | GPU AMD/Intel via ONNX Runtime; RX 6600 faz o `l` em 23 ms (5× de folga) |
-| `mps` | `yolo11m.pt` | não medido; escolha conservadora |
+| `cpu` | `yolo26s.pt` | maior porte que ainda sustenta a taxa alvo |
+| `cuda` | `yolo26l.pt` | ~3× de folga sobre o teto |
+| `directml` | `yolo11l.pt` | GPU AMD/Intel via ONNX Runtime; RX 6600 faz o `l` em 23 ms (5× de folga). A exportação da família 26 não foi validada com DirectML |
+| `mps` | `yolo26m.pt` | não medido; escolha conservadora |
 
-Tempo por quadro medido nesta máquina — CPU de 6 threads e GeForce GTX 1650
-(4 GB, compute 7.5), entrada 640×480, `imgsz=640`:
+Acurácia medida em **500 imagens do COCO val2017** — imagens que o modelo nunca
+viu no treino (o procedimento está em `docs/testes.md`) — e tempo por quadro na
+CPU desta máquina (Ryzen 5 5600H, 6 núcleos), `imgsz=640`, lote 1. A coluna GPU
+é da GeForce GTX 1650, medida antes para a família 11:
 
-| Pesos | CPU | GPU | Taxa GPU | COCO mAP50-95 | VRAM |
-|---|---|---|---|---|---|
-| `yolo11n.pt` | 46 ms | 13 ms | 76 /s | 39,5 | |
-| **`yolo11s.pt`** | **93 ms** | **17 ms** | **60 /s** | **47,0** | |
-| `yolo11m.pt` | 226 ms | 34 ms | 29 /s | 51,5 | 0,22 GB |
-| **`yolo11l.pt`** | 278 ms | **42 ms** | **24 /s** | **53,4** | 0,33 GB |
-| `yolo11x.pt` | — | 79 ms | 13 /s | 54,7 | 0,64 GB |
-| `yolov8s.pt` | 90 ms | — | | 44,9 | |
-| `yolov8m.pt` | 207 ms | — | | 50,2 | |
+| Pesos | mAP50-95 | mAP50 | CPU | GPU |
+|---|---|---|---|---|
+| `yolo11n.pt` | 39,3 | 54,4 | 38 ms | 13 ms |
+| `yolo26n.pt` | 41,0 | 56,1 | 37 ms | |
+| `yolo11s.pt` | 46,5 | 63,0 | 83 ms | 17 ms |
+| **`yolo26s.pt`** | **49,0** | **66,0** | **85 ms** | |
+| `yolo11m.pt` | 52,1 | 69,3 | 274 ms | 34 ms |
+| `yolo26m.pt` | 53,2 | 69,9 | 269 ms | |
+| `yolo11l.pt` | 54,1 | 69,7 | 346 ms | 42 ms |
+| **`yolo26l.pt`** | **56,7** | **74,0** | 332 ms | |
 
-A família 11 custa o mesmo da 8 em cada porte e acerta mais — não há razão para
-ficar na 8.
+A família 26 custa o mesmo da 11 em cada porte e acerta mais (+2,5 pontos no
+`s`, +2,6 no `l`); também dispensa o NMS, a etapa que produzia duas caixas com
+rótulos diferentes sobre o mesmo objeto. A 11 já tinha substituído a 8 pelo mesmo
+motivo (47,0 contra 44,9 no porte `s`).
 
 O critério de escolha é **folga sobre `MAX_INFERENCE_FPS` (8 /s, a taxa que a
-placa envia)**, não a taxa máxima possível. Em CPU o porte `m` fica em 4,4 /s,
-abaixo do teto, e acumularia fila. Em GPU o `x` custaria o dobro do tempo do `l`
-por 1,3 ponto de mAP, e derrubaria a folga de 3× para 1,6× — pouco para uma
-demonstração ao vivo, em que a mesma GPU também desenha a tela.
+placa envia)**, não a taxa máxima possível. Em CPU o porte `m` fica em ~3,7 /s,
+abaixo do teto, e acumularia fila. Em GPU o `l` cabe com folga de ~3×.
 
-VRAM não é o limite: mesmo o `x` reserva 0,64 GB dos 4,3 GB da placa.
+**A GPU só é usada se o driver for novo o bastante para o build do PyTorch.** O
+`torch` com CUDA 12.6 exige driver NVIDIA da série 528 ou mais nova; com driver
+antigo, `torch.cuda.is_available()` devolve `False` e o servidor roda na CPU,
+com o modelo menor. O log de partida agora diz isso explicitamente
+(`GPU NVIDIA encontrada, mas o CUDA nao iniciou`). Na GTX 1650 desta máquina,
+com o driver 512.74, é exatamente o que acontece: atualize o driver pelo site da
+NVIDIA e reinicie o servidor.
 
 **Build CUDA do PyTorch** (o índice padrão do PyPI instala a versão só-CPU):
 
@@ -101,30 +112,71 @@ AVS_VISION__MODEL_PATH=models/best.pt # pesos refinados por training/train.py
 
 ### Medições que fixaram os padrões
 
-Revocação / precisão no COCO128 (128 imagens rotuladas, IoU ≥ 0,5, mesma
-classe), reproduzíveis com `server/training/pipeline_ablation.py`.
+Todas em 500 imagens do COCO val2017 (nunca vistas no treino), pelo **mesmo
+caminho de um quadro real** — JPEG q88 da borda, decodificação e
+pré-processamento do servidor —, reproduzíveis com
+`server/training/pipeline_ablation.py`. IoU ≥ 0,5 e mesma classe.
 
-| Modelo | conf 0,50 | conf 0,35 | conf 0,25 |
-|---|---|---|---|
-| yolo11n | 38,6% / 93,7% | 46,5% / 85,2% | 51,9% / 73,9% |
-| yolo11s | 46,6% / 91,9% | 55,7% / 84,3% | 61,7% / 77,9% |
-| yolo11m | 49,9% / 92,8% | 58,1% / 86,4% | 63,8% / 80,7% |
-| yolo11l | 50,6% / 92,2% | 59,4% / 86,7% | 65,0% / 80,2% |
+> As medições anteriores usavam o COCO128, que é um recorte do conjunto de
+> **treino** do COCO: o modelo já tinha visto aquelas imagens, e os números
+> saíam inflados (yolo11s a conf 0,35: 55,7% de revocação no COCO128, contra
+> 49,6% em imagens novas).
 
-Efeito do caminho da imagem (yolo11s, conf 0,50):
+**Limiar de confiança** (`yolo26s`, perfil de mobilidade):
 
-| Variante | Revocação | Precisão |
+| conf | Precisão | Revocação | F1 | fantasmas | rótulo trocado |
+|---|---|---|---|---|---|
+| 0,25 | 75,6% | 58,2% | 0,657 | 234 | 39 |
+| 0,30 | 78,9% | 56,0% | 0,655 | 182 | 34 |
+| **0,35** | **81,9%** | **54,0%** | **0,651** | **139** | **29** |
+| 0,40 | 84,2% | 51,4% | 0,639 | 117 | 24 |
+| 0,45 | 86,8% | 49,6% | 0,632 | 81 | 20 |
+| 0,50 | 88,8% | 47,3% | 0,617 | 58 | 18 |
+
+"Fantasma" é detecção sem nenhum objeto real embaixo; "rótulo trocado", objeto
+real com o nome de outra classe. Com as 80 classes liberadas, no mesmo limiar,
+os rótulos trocados sobem de 29 para 52 — quase metade deles são trocas entre
+classes que o perfil de mobilidade descarta (vaca → ovelha é a mais comum).
+
+**Condições do protótipo** (conf 0,35, 80 classes):
+
+| Variante | yolo11s P / R | yolo26s P / R |
 |---|---|---|
-| imagem original | 46,6% | 91,9% |
-| + CLAHE | 43,4% | 91,4% |
-| esticada para 4:3 (webcam 16:9) | 42,7% | 90,8% |
-| escurecida + ruído | 32,5% | 88,3% |
-| escurecida + ruído + CLAHE | 30,6% | 86,3% |
+| imagem original | 80,7% / 49,6% | 81,4% / 51,7% |
+| escura + ruído de sensor | 77,3% / 31,9% | 78,4% / 31,6% |
+| borrão de movimento (~11 px) | 79,5% / 29,3% | 79,7% / 29,5% |
+| QVGA (placa sem PSRAM) | 82,7% / 42,1% | 83,8% / 43,0% |
+| JPEG q40 em vez de q88 | 82,2% / 43,4% | — |
+
+O transporte não é o gargalo: o JPEG q88 da borda custa ~2 pontos de revocação
+contra a imagem original. O que derruba a detecção é a **imagem**: pouca luz e
+borrão de quem anda tiram ~20 pontos, e nenhum modelo recupera isso — o `s` da
+família 26 empata com o da 11 nessas condições. A saída está na câmera
+(exposição curta, iluminação, `CAMERA_JPEG_QUALITY` alto) e em treinar com
+imagens do próprio protótipo. O CLAHE, medido antes, piorou a revocação em todos
+os cenários e segue desligado.
+
+**Rastreador** (`yolo26s`, conf 0,35, 120 sequências de 12 quadros simulando
+câmera presa ao peito; as mesmas detecções alimentam os dois rastreadores):
+
+| | Precisão das caixas exibidas | Caixas fantasmas | Anúncios errados |
+|---|---|---|---|
+| antes (confirmação por acertos totais, 8 quadros de sobra) | 73,3% | 403 | 148 de 755 (20%) |
+| agora (acertos seguidos, votação de rótulo, 2 quadros de sobra) | 79,2% | 204 | 99 de 632 (16%) |
+
+O custo é revocação: 40,2% → 37,2% das caixas exibidas, porque o objeto que
+some deixa de ser desenhado em 2 quadros em vez de 8.
 
 ### Se o detector errar ou deixar de ver
 
 Na ordem em que vale conferir:
 
+0. **O detector é o YOLO?** — o selo no topo do painel mostra os pesos e o
+   dispositivo (`detector: yolo26s.pt em cpu`). Em vermelho, `SIMULADO`, as
+   caixas são sintéticas e **não vêm da câmera**: pessoa, cadeira e carro
+   passeando sobre qualquer imagem. Isso acontece com `AVS_VISION__BACKEND=auto`
+   quando o YOLO não carrega — por exemplo, servidor iniciado antes de instalar o
+   `torch` e nunca reiniciado. O padrão agora é `yolo`, que recusa subir nesse caso;
 1. **Orientação da câmera** — uma imagem de cabeça para baixo praticamente
    zera a detecção de pessoas. Confira no painel e ajuste `CAMERA_VFLIP` em
    `firmware/esp32cam/include/config.h`;
@@ -164,8 +216,15 @@ mudar um, registre no texto.
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `AVS_TRACKING__IOU_MATCH_THRESHOLD` | `0.30` | sobreposição mínima para casar quadros |
-| `AVS_TRACKING__MIN_HITS` | `3` | detecções antes de confirmar o objeto |
-| `AVS_TRACKING__MAX_MISSES` | `8` | quadros sem ver antes de descartar o rastro |
+| `AVS_TRACKING__MIN_HITS` | `3` | detecções **seguidas** antes de confirmar o objeto; uma falha antes disso descarta o rastro |
+| `AVS_TRACKING__MAX_MISSES` | `8` | quadros sem ver antes de descartar o rastro (preserva a identidade: o objeto que pisca não é reanunciado) |
+| `AVS_TRACKING__COAST_FRAMES` | `2` | quadros sem ver em que o rastro ainda aparece no painel e na narração; depois some, mesmo vivo |
+
+O rótulo de um rastro é decidido por votação ponderada pela confiança: a mesma
+cadeira rotulada `chair` num quadro e `couch` no seguinte continua um objeto só,
+com o nome mais votado. Um rastro só aceita detecção de outra classe quando as
+caixas são praticamente iguais (IoU ≥ 0,6), para que uma pessoa sentada e a
+cadeira embaixo dela continuem separadas.
 
 ## Proximidade
 

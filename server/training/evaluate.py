@@ -5,7 +5,7 @@ revocacao por classe e tempo de inferencia. O resultado sai em tabela pronta
 para transcricao e tambem em CSV.
 
     python training/evaluate.py --weights runs/assistivo/weights/best.pt
-    python training/evaluate.py --weights models/yolov8n.pt --benchmark-only
+    python training/evaluate.py --weights models/yolo26s.pt --benchmark-only
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def evaluate(args: argparse.Namespace) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--weights", type=Path, default=ROOT / "models" / "yolov8n.pt")
+    parser.add_argument("--weights", type=Path, default=ROOT / "models" / "yolo26s.pt")
     parser.add_argument("--data", type=Path, default=ROOT / "datasets" / "urbano" / "data.yaml")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--device", default="cpu")

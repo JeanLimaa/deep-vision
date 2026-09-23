@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.vision.labels import MOBILITY_LABELS
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SERVER_DIR = ROOT_DIR / "server"
 VAR_DIR = SERVER_DIR / "var"
@@ -29,20 +31,32 @@ class ServerSettings(BaseModel):
 class VisionSettings(BaseModel):
     # "yolo" usa ultralytics; "fake" gera deteccoes sinteticas (sem dependencias
     # pesadas) e serve para rodar/testar o sistema inteiro sem GPU nem modelo.
-    backend: Literal["yolo", "fake", "auto"] = "auto"
+    #
+    # O padrao e "yolo", e nao "auto": se o YOLO nao carregar, o servidor para
+    # na partida com o motivo. "auto" cai para o simulado quando o YOLO falha, e
+    # foi assim que um servidor iniciado antes de instalar o torch passou horas
+    # desenhando caixas sinteticas sobre a webcam, parecendo um detector ruim.
+    # Numa medicao do TCC, dado falso silencioso e o pior erro possivel.
+    backend: Literal["yolo", "fake", "auto"] = "yolo"
     # "auto" escolhe os pesos pelo dispositivo: o maior modelo que ainda sustenta
     # a taxa alvo em CPU, ou um mais preciso quando ha GPU. A tabela de tempos
     # esta em vision/yolo_detector.py e em docs/configuracao.md. Para fixar,
-    # aponte AVS_VISION__MODEL_PATH para um arquivo (ex.: yolo11n.pt).
+    # aponte AVS_VISION__MODEL_PATH para um arquivo (ex.: yolo26n.pt).
     model_path: str = "auto"
+    # Modelos que rodam ao lado do principal e so ACRESCENTAM classes que ele
+    # nao tem -- tipicamente um modelo treinado em training/ com degrau, porta,
+    # poste. Ex.: AVS_VISION__EXTRA_MODEL_PATHS=["runs/urbano/weights/best.pt"]
+    extra_model_paths: list[str] = Field(default_factory=list)
     # "directml" = qualquer GPU DirectX 12 no Windows (AMD, Intel), via ONNX Runtime.
     device: Literal["auto", "cpu", "cuda", "mps", "directml"] = "auto"
-    # Revocacao/precisao no COCO128 com yolo11s (IoU >= 0,5):
-    #     conf 0,50 -> 46,6% / 91,9%     conf 0,35 -> 55,7% / 84,3%
-    #     conf 0,25 -> 61,7% / 77,9%
-    # 0,50 descartava quase um objeto real em cada cinco para ganhar 7 pontos de
-    # precisao. O ruido de quadro unico ("cat", "toothbrush") e cortado pelo
-    # rastreador (min_hits), que e o filtro certo para ele.
+    # Revocacao/precisao com yolo26s, 500 imagens do COCO val2017, pelo caminho
+    # do servidor e com o perfil de mobilidade (IoU >= 0,5):
+    #     conf 0,25 -> 58,2% / 75,6%     conf 0,35 -> 54,0% / 81,9%
+    #     conf 0,50 -> 47,3% / 88,8%
+    # O F1 e praticamente o mesmo de 0,25 a 0,35; 0,50 descartaria um objeto
+    # real em cada oito para ganhar 7 pontos de precisao. O ruido intermitente
+    # ("cat", "toothbrush") e cortado pelo rastreador (min_hits), que e o filtro
+    # certo para ele.
     confidence_threshold: float = 0.35
     iou_threshold: float = 0.45
     max_detections: int = 20
@@ -50,6 +64,11 @@ class VisionSettings(BaseModel):
     # modelos YOLO foram treinados: abaixo dela a acuracia cai visivelmente, e
     # o quadro VGA da OV2640 (640x480) chega sem precisar ser reamostrado.
     inference_size: int = 640
+    # Classes que o detector pode reportar; as demais sao descartadas antes do
+    # rastreio. Padrao: o perfil de mobilidade de vision/labels.py, que tira do
+    # COCO o que nunca e resposta certa para quem caminha (girafa, aviao,
+    # pizza...). Lista vazia ([]) libera todas as classes do modelo.
+    allowed_labels: list[str] = Field(default_factory=lambda: sorted(MOBILITY_LABELS))
     # Classes ignoradas na narracao (ruido para o usuario final).
     ignored_labels: list[str] = Field(default_factory=list)
     # Numero maximo de quadros por segundo efetivamente inferidos por dispositivo.
@@ -102,16 +121,22 @@ class PreprocessSettings(BaseModel):
 
 class TrackingSettings(BaseModel):
     iou_match_threshold: float = 0.30
-    # Quadros consecutivos sem deteccao antes de descartar o rastro.
+    # Quadros consecutivos sem deteccao antes de descartar o rastro. Enquanto
+    # vive, o rastro guarda a identidade: o objeto que pisca nao e reanunciado.
     max_misses: int = 8
+    # Quadros sem deteccao em que o rastro ainda e desenhado e narrado. Acima
+    # disso ele segue vivo (max_misses), mas some do painel e das respostas: a
+    # caixa de um objeto que ja saiu de cena nao pode ficar ~1 s na tela.
+    coast_frames: int = 2
     # Deteccoes consecutivas antes de considerar o objeto confirmado.
     #
     # E o filtro de falso positivo mais barato que existe aqui, e vale mais que
-    # subir a confianca: o rastro so e narrado depois de min_hits quadros com o
-    # MESMO rotulo na MESMA regiao. A 8 quadros/s, 3 acertos sao ~0,4 s -- pouco
-    # para um objeto real, muito para o ruido de um quadro so que produz
-    # "toothbrush" ou "cat". Com 4, a camera presa ao corpo balancava o bastante
-    # para o rastro se perder antes de ser confirmado.
+    # subir a confianca: o rastro so e narrado depois de min_hits quadros
+    # SEGUIDOS com deteccao na MESMA regiao -- uma falha antes disso descarta o
+    # rastro. A 8 quadros/s, 3 acertos sao ~0,4 s -- pouco para um objeto real,
+    # muito para o ruido intermitente que produz "toothbrush" ou "cat". Com 4, a
+    # camera presa ao corpo balancava o bastante para o rastro se perder antes
+    # de ser confirmado.
     min_hits: int = 3
 
 

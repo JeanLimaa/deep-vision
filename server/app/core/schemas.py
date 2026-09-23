@@ -94,6 +94,11 @@ class HealthOut(BaseModel):
     status: Literal["ok"] = "ok"
     detector: str
     detector_ready: bool
+    # Pesos e dispositivo em uso (ex.: "yolo11s.pt" em "cpu"). No detector
+    # simulado, ``detector_note`` explica por que o YOLO nao foi carregado.
+    detector_model: str = ""
+    detector_device: str = ""
+    detector_note: str | None = None
     tts: str
     stt: str
     audio_sinks: list[str]

@@ -89,6 +89,12 @@ Prioridades: `0` ambiente · `10` informação · `20` resposta a comando ·
 `30` alerta · `40` crítico. `interrupt: true` significa que o dispositivo deve
 abortar a locução em curso.
 
+Todo quadro de imagem recebe exatamente um `frame_ack`, mas não necessariamente
+na ordem de envio. `dropped: true` significa que o quadro não foi inferido: ou
+chegou enquanto o anterior ainda era processado e foi substituído por um mais
+novo, ou a sessão está pausada, ou o limite de taxa foi atingido. É o sinal para
+o dispositivo enviar menos quadros por segundo — o simulador já recua sozinho.
+
 ---
 
 ## HTTP (transporte do artigo)

@@ -46,8 +46,15 @@ server\.venv\Scripts\python simulator\virtual_device.py --sonar approach
 Abra <http://localhost:8000> para o painel: vídeo anotado, objetos detectados,
 zona de proximidade, log de falas e uma caixa para digitar comandos de voz.
 
-Sem os pesos do YOLO ou sem GPU, o servidor cai sozinho para um detector
-simulado e tudo continua funcionando — `AVS_VISION__BACKEND=fake` força esse modo.
+Os pesos do YOLO são baixados sozinhos para `models/` na primeira execução. Se
+o YOLO não carregar (dependências de visão ausentes, por exemplo), o servidor
+**não sobe** e diz o motivo — antes ele caía em silêncio para um detector
+simulado, cujas caixas sintéticas pareciam erros do YOLO. Para rodar sem o YOLO
+de propósito, use `AVS_VISION__BACKEND=fake`: o vídeo sai com a tarja vermelha
+"DETECTOR SIMULADO" e o selo do painel fica vermelho.
+
+> Instalou dependências com o servidor no ar? **Reinicie o servidor** — o
+> detector é carregado uma única vez, na partida.
 
 ## Estrutura
 
@@ -82,17 +89,23 @@ uv run pytest
 uv run ruff check app
 ```
 
-64 testes, sem hardware e sem modelo baixado.
+85 testes, sem hardware e sem modelo baixado.
 
 ## Aceleração por GPU (opcional)
 
-Sem GPU o servidor usa o `yolo11s` na CPU (~90 ms por quadro). Com GPU, o
-`AVS_VISION__DEVICE=auto` detecta a placa e sobe para o `yolo11l`, mais preciso:
+Sem GPU o servidor usa o `yolo26s` na CPU (~85 ms por quadro). Com GPU, o
+`AVS_VISION__DEVICE=auto` detecta a placa e sobe para um modelo maior e mais
+preciso (`yolo26l` em CUDA, `yolo11l` em DirectML):
 
-| Placa | Como instalar | yolo11l por quadro |
+| Placa | Como instalar | modelo `l` por quadro |
 |---|---|---|
 | **NVIDIA** | `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126` | ~42 ms (GTX 1650) |
 | **AMD / Intel** (Windows) | `uv pip install -e ".[gpu-directml]"` | ~23 ms (RX 6600) |
+
+Na NVIDIA, o build `cu126` exige **driver recente** (série 528 ou mais nova). Com
+driver antigo o PyTorch não enxerga a placa e o servidor roda na CPU — o log de
+partida avisa com `GPU NVIDIA encontrada, mas o CUDA nao iniciou`. Atualizar o
+driver resolve; nenhum pacote precisa ser reinstalado.
 
 Na AMD o modelo roda pelo ONNX Runtime com DirectML; o `.onnx` é exportado
 sozinho do `.pt` na primeira execução. **Não instale o pacote `onnxruntime`

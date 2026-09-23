@@ -72,7 +72,12 @@ O YOLO devolve `chair 0.87 [x1,y1,x2,y2]`. Isso não é utilizável por alguém 
 não enxerga. O caminho até a fala útil:
 
 1. **Rastreio por IoU** — dá identidade estável aos objetos entre quadros. Sem
-   isso o sistema repetiria "cadeira à frente" a 8 Hz.
+   isso o sistema repetiria "cadeira à frente" a 8 Hz. É também o principal
+   filtro de erro do detector: um objeto só é confirmado depois de 3 quadros
+   **seguidos** (o ruído que pisca nunca chega lá), o rótulo é decidido por
+   votação ponderada pela confiança (a cadeira que sai `couch` em um quadro não
+   vira um segundo objeto) e um rastro que deixou de ser visto some da tela e da
+   narração em 2 quadros, em vez de ficar ~1 s como caixa fantasma.
 2. **Direção** — a terça parte central do quadro é "à frente"; o resto é
    esquerda ou direita.
 3. **Distância monocular** — modelo pinhole, `d = (H · f) / h`, com a altura
@@ -137,7 +142,18 @@ eventos ao painel ao mesmo tempo. Regras seguidas em todo o pipeline:
 - **Uma inferência por vez** (semáforo). O modelo é o gargalo; paralelizar só
   aumentaria a latência de cada quadro sem elevar a vazão.
 - **Descartar, não enfileirar.** Quadros acima da taxa útil são descartados. Em
-  vídeo ao vivo, quadro atrasado vale menos que quadro nenhum.
+  vídeo ao vivo, quadro atrasado vale menos que quadro nenhum. No WebSocket, a
+  visão roda numa tarefa própria com uma caixa de um lugar só: o quadro que
+  chega durante uma inferência toma o lugar do que ainda esperava, e o
+  substituído recebe `frame_ack` com `dropped: true` — o sinal para o
+  dispositivo reduzir a taxa. Antes, o laço de recepção inferia cada quadro
+  antes de ler a próxima mensagem; com a inferência (~140 ms) mais lenta que o
+  intervalo entre quadros (125 ms), os quadros se acumulavam no socket e a
+  latência de ponta a ponta subiu de 0,17 s para 5,3 s em 100 s de uso. Com a
+  caixa, a mesma carga ficou em 145 ms de mediana e 240 ms no p95.
+- **Telemetria nunca espera a visão.** Pelo mesmo motivo, a leitura do sonar e
+  os comandos são tratados no laço de recepção, sem esperar a inferência em
+  curso.
 - **Assinante lento não trava ninguém.** O barramento de eventos descarta os
   eventos mais antigos da fila de quem não consome rápido o bastante.
 
@@ -161,7 +177,34 @@ nesse caso, reporta apenas o tempo gasto dentro do servidor, omitindo a parcela
 de rede. Para medir a latência de ponta a ponta de verdade, sincronize o
 firmware por NTP ou use o simulador, que já compartilha o relógio da máquina.
 
-## 9. Limitações conhecidas
+## 9. O vocabulário do detector
+
+O YOLO pré-treinado no COCO conhece 80 classes e **só essas**. Medido no
+HomeObjects-3K (404 imagens de interiores), com o limiar do servidor, ele
+simplesmente **não vê** o que está fora do vocabulário — e não inventa nome
+para isso: ignora 99% das portas, 100% das janelas e guarda-roupas, 99% das
+luminárias e 98% dos quadros. A lacuna para quem caminha, portanto, não é o
+rótulo errado, é o objeto ausente: a porta que não é anunciada, o degrau que o
+modelo nunca viu. Duas decisões tratam do vocabulário:
+
+- **Perfil de mobilidade** (`AVS_VISION__ALLOWED_LABELS`). Das 80 classes,
+  ficam as que importam para quem caminha: obstáculos, veículos, mobiliário e
+  os objetos pessoais que o usuário procura por comando de voz. Saem girafa,
+  avião, pizza, esqui — classes que nunca são a resposta certa nesse contexto e
+  que, quando aparecem, são engano. No COCO val, o perfil corta quase pela
+  metade as detecções com rótulo errado (de 52 para 29 em 500 imagens, com o
+  `yolo26s`), porque boa parte delas é troca entre classes parecidas que não
+  interessam (vaca → ovelha). Um anúncio absurdo custa mais confiança no
+  dispositivo do que um objeto não anunciado.
+- **Modelos extras em vez de re-treinar o principal**
+  (`AVS_VISION__EXTRA_MODEL_PATHS`). Re-treinar o YOLO só com as classes novas
+  troca a cabeça de 80 saídas por uma de 8: o modelo passa a achar degraus e
+  **esquece pessoas e carros** (esquecimento catastrófico). O modelo das classes
+  novas roda ao lado do COCO e só acrescenta o que ele não tem. Um modelo único
+  exigiria rotular, nas imagens novas, também todas as pessoas, carros e cadeiras
+  que aparecem nelas — do contrário a rede aprende que pessoa é fundo.
+
+## 10. Limitações conhecidas
 
 - **Distância monocular** depende de o objeto estar inteiro no quadro e de a
   altura média da classe ser representativa. Erros de 30–50% são esperados; por

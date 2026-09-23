@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
@@ -24,9 +25,13 @@ router = APIRouter(prefix="/api/v1", tags=["control"])
 @router.get("/health", response_model=HealthOut)
 async def health(container: ContainerDep) -> HealthOut:
     container.registry.expire_stale()
+    detector = container.detector
     return HealthOut(
-        detector=container.detector.name,
-        detector_ready=container.detector.ready,
+        detector=detector.name,
+        detector_ready=detector.ready,
+        detector_model=Path(str(getattr(detector, "model_path", ""))).name,
+        detector_device=str(getattr(detector, "device", "")),
+        detector_note=getattr(detector, "fallback_reason", None),
         tts=container.tts.name,
         stt=container.stt.name,
         audio_sinks=[sink.name for sink in container.sinks],

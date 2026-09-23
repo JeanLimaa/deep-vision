@@ -7,7 +7,11 @@ nenhum dispositivo fisico conectado.
 
 from __future__ import annotations
 
+import struct
+import time
+
 import pytest
+from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
@@ -29,6 +33,9 @@ async def test_health_reports_the_active_backends(client):
     assert response.status_code == 200
     body = response.json()
     assert body["detector"] == "fake"
+    assert body["detector_model"] == "simulado"
+    # Escolhido explicitamente (conftest), nao e um fallback: sem nota de erro.
+    assert body["detector_note"] is None
     assert body["status"] == "ok"
 
 
@@ -174,3 +181,54 @@ async def test_device_token_is_enforced_when_configured(settings, jpeg_frame):
                 headers={"X-Device-Token": "segredo"},
             )
             assert authorized.status_code == 200
+
+
+# --------------------------------------------------------------- WebSocket
+
+
+def _image_message(sequence: int, jpeg: bytes) -> bytes:
+    return struct.pack(">BQQ", 0x01, sequence, 0) + jpeg
+
+
+def _slow_detector(app, seconds: float) -> None:
+    """Inferencia mais lenta que o intervalo entre quadros, como em CPU."""
+    detector = app.state.container.detector
+    original = detector.detect
+
+    def slow(image):
+        time.sleep(seconds)
+        return original(image)
+
+    detector.detect = slow
+
+
+def test_stream_replaces_waiting_frames_instead_of_queueing(settings, jpeg_frame):
+    app = create_app(settings)
+    with TestClient(app) as client:
+        _slow_detector(app, 0.3)
+        with client.websocket_connect("/api/v1/stream?device_id=ws-01") as socket:
+            for sequence in range(1, 6):
+                socket.send_bytes(_image_message(sequence, jpeg_frame))
+            acks: dict[int, bool] = {}
+            while len(acks) < 5:
+                message = socket.receive_json()
+                if message["type"] == "frame_ack":
+                    acks[message["sequence"]] = message["dropped"]
+    # Todo quadro recebe exatamente um ack; os que esperavam foram substituidos
+    # (dropped=True faz o dispositivo reduzir a taxa) e o mais recente e inferido.
+    assert set(acks) == {1, 2, 3, 4, 5}
+    assert any(acks.values())
+    assert acks[5] is False
+
+
+def test_control_messages_do_not_wait_for_inference(settings, jpeg_frame):
+    app = create_app(settings)
+    with TestClient(app) as client:
+        _slow_detector(app, 0.5)
+        with client.websocket_connect("/api/v1/stream?device_id=ws-02") as socket:
+            socket.send_bytes(_image_message(1, jpeg_frame))
+            socket.send_json({"type": "ping"})
+            # Antes, o pong so saia depois do frame_ack: o sonar e os comandos
+            # esperavam a inferencia terminar.
+            assert socket.receive_json()["type"] == "pong"
+            assert socket.receive_json()["type"] == "frame_ack"

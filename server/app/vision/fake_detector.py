@@ -52,9 +52,16 @@ class FakeDetector:
     """Gera deteccoes coerentes no tempo, com ruido leve e aparicoes ciclicas."""
 
     name = "fake"
+    model_path = "simulado"
+    device = "-"
 
-    def __init__(self, settings: VisionSettings, seed: int = 7) -> None:
+    def __init__(
+        self, settings: VisionSettings, seed: int = 7, fallback_reason: str | None = None
+    ) -> None:
         self._settings = settings
+        # Preenchido quando o YOLO falhou e o modo "auto" caiu para ca; aparece
+        # no /health e no painel, para ninguem confundir estas caixas com reais.
+        self.fallback_reason = fallback_reason
         self._rng = random.Random(seed)
         self._tick = 0
         self._objects = [

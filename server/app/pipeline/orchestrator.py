@@ -89,10 +89,13 @@ class AssistivePipeline:
         started = time.perf_counter()
         tracks, inference_ms, width = await self._infer(session, image)
         total_ms = (time.perf_counter() - started) * 1000.0
-        # Sem relogios sincronizados, a latencia de rede nao e mensuravel; nesse
-        # caso reporta-se apenas o tempo gasto dentro do servidor.
+        # Tempo dentro do servidor contado da CHEGADA do quadro, e nao do inicio
+        # da inferencia: inclui a espera pelo quadro anterior, que o usuario
+        # tambem sente. Sem relogios sincronizados, a latencia de rede nao e
+        # mensuravel; nesse caso reporta-se apenas o tempo dentro do servidor.
+        server_ms = max(total_ms, float(now_ms() - frame.received_at_ms))
         network_ms = frame.latency_ms()
-        end_to_end_ms = (network_ms + total_ms) if network_ms is not None else total_ms
+        end_to_end_ms = (network_ms + server_ms) if network_ms is not None else server_ms
         session.stats.record_processed(inference_ms, end_to_end_ms)
         session.last_tracks = tracks
 
@@ -161,7 +164,12 @@ class AssistivePipeline:
         if self._bus.subscriber_count == 0 and not self._settings.storage.save_annotated_frames:
             return
         annotated = await asyncio.to_thread(
-            draw_tracks, image, tracks, session.zone, session.nearest_distance_m
+            draw_tracks,
+            image,
+            tracks,
+            session.zone,
+            session.nearest_distance_m,
+            self._detector.name == "fake",
         )
         session.last_annotated_jpeg = await asyncio.to_thread(encode_jpeg, annotated, 78)
         session.frame_event.set()

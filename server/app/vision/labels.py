@@ -99,6 +99,10 @@ COCO_PT: dict[str, tuple[str, str]] = {
     "tactile paving": ("piso tatil", "um"),
     "door": ("porta", "uma"),
     "crosswalk": ("faixa de pedestres", "uma"),
+    # Classes de interiores do HomeObjects-3K que o COCO nao tem.
+    "window": ("janela", "uma"),
+    "wardrobe": ("guarda-roupa", "um"),
+    "lamp": ("luminaria", "uma"),
 }
 
 # Altura media real, em metros. Base do modelo pinhole em ``vision.spatial``.
@@ -140,10 +144,40 @@ OBJECT_HEIGHTS_M: dict[str, float] = {
     "book": 0.25,
     "clock": 0.30,
     "door": 2.05,
+    "wardrobe": 1.90,
     "pole": 3.00,
     "stairs": 1.00,
     "step": 0.18,
 }
+
+# Perfil "mobilidade": o que o detector pode reportar por padrao
+# (``vision.allowed_labels``). Entram obstaculos, veiculos, mobiliario urbano e
+# domestico, e os objetos pessoais que o usuario procura por comando de voz
+# ("onde esta o meu celular?"). Ficam de fora as classes do COCO que nunca sao a
+# resposta certa para quem caminha -- girafa, aviao, pizza, esqui, gravata --
+# e que, quando aparecem, sao sempre um engano do modelo: um anuncio absurdo
+# desses custa mais confianca no dispositivo do que um objeto nao anunciado.
+MOBILITY_LABELS: frozenset[str] = frozenset(
+    {
+        # pessoas e animais que cruzam o caminho
+        "person", "dog", "cat", "horse",
+        # veiculos
+        "bicycle", "car", "motorcycle", "bus", "truck", "train",
+        # mobiliario urbano
+        "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
+        # obstaculos no chao e objetos carregados
+        "backpack", "umbrella", "handbag", "suitcase",
+        # mobiliario e eletrodomesticos
+        "chair", "couch", "bed", "dining table", "toilet", "sink", "refrigerator",
+        "oven", "microwave", "tv", "potted plant",
+        # objetos pessoais procurados por comando de voz
+        "cell phone", "laptop", "keyboard", "mouse", "remote", "book", "clock",
+        "bottle", "cup", "vase",
+        # classes proprias previstas para o modelo refinado (training/)
+        "step", "stairs", "pothole", "pole", "curb", "tactile paving", "door", "crosswalk",
+        "window", "wardrobe", "lamp",
+    }
+)
 
 # Classes que representam risco imediato de colisao/queda e por isso furam o
 # cooldown normal de narracao.

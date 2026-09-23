@@ -27,6 +27,7 @@ import numpy as np
 
 from app.core.types import BoundingBox, Detection
 from app.settings import VisionSettings
+from app.vision.detector import allowed_class_ids
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +95,13 @@ class OnnxYoloDetector:
 
     name = "yolo"
 
-    def __init__(self, settings: VisionSettings, weights: str, use_gpu: bool = True) -> None:
+    def __init__(
+        self,
+        settings: VisionSettings,
+        weights: str,
+        use_gpu: bool = True,
+        filter_classes: bool = True,
+    ) -> None:
         import onnxruntime as ort
 
         self._settings = settings
@@ -116,12 +123,18 @@ class OnnxYoloDetector:
         self._names: dict[int, str] = {
             int(k): str(v) for k, v in ast.literal_eval(metadata.get("names", "{}")).items()
         }
+        ids = allowed_class_ids(self._names, settings.allowed_labels) if filter_classes else None
+        self._class_ids = None if ids is None else np.array(ids)
         self._lock = threading.Lock()
         self._ready = False
 
     @property
     def ready(self) -> bool:
         return self._ready
+
+    @property
+    def labels(self) -> frozenset[str]:
+        return frozenset(self._names.values())
 
     @property
     def device(self) -> str:
@@ -142,7 +155,10 @@ class OnnxYoloDetector:
 
         # Saida do NMS embutido: (max_det, 6) = x1, y1, x2, y2, score, classe,
         # ja ordenada por score. Linhas vazias vem com score 0.
-        rows = output[output[:, 4] >= s.confidence_threshold][: s.max_detections]
+        keep = output[:, 4] >= s.confidence_threshold
+        if self._class_ids is not None:
+            keep &= np.isin(output[:, 5].astype(int), self._class_ids)
+        rows = output[keep][: s.max_detections]
         height, width = image.shape[:2]
         detections: list[Detection] = []
         for x1, y1, x2, y2, score, cls in rows:

@@ -212,7 +212,14 @@
     try {
       const response = await fetch("/api/v1/health");
       const health = await response.json();
-      el.badges.detector.textContent = `detector: ${health.detector}`;
+      // Simulado em vermelho: as caixas nao vem da camera. Com o YOLO, mostra
+      // pesos e dispositivo -- e o que se precisa conferir antes de um ensaio.
+      const simulated = health.detector === "fake";
+      el.badges.detector.textContent = simulated
+        ? "detector: SIMULADO (caixas ficticias)"
+        : `detector: ${health.detector_model || health.detector} em ${health.detector_device}`;
+      el.badges.detector.dataset.state = simulated ? "off" : "on";
+      el.badges.detector.title = health.detector_note || "";
       el.badges.tts.textContent = `tts: ${health.tts}`;
       el.badges.stt.textContent = `stt: ${health.stt}`;
       renderDevices(health.devices || []);

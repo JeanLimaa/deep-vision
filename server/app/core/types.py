@@ -138,6 +138,9 @@ class TrackedObject:
     last_seen_ms: Milliseconds
     hits: int = 1
     misses: int = 0
+    # Votos por rotulo, ponderados pela confianca: o rotulo do rastro e o mais
+    # votado, e nao o do ultimo quadro (ver ``vision.tracking``).
+    label_votes: dict[str, float] = field(default_factory=dict)
     announced: bool = False
     last_announced_direction: Direction | None = None
     last_announced_zone: Zone | None = None

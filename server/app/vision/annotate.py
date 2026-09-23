@@ -22,8 +22,13 @@ def draw_tracks(
     tracks: list[TrackedObject],
     zone: Zone = Zone.SAFE,
     nearest_distance_m: float | None = None,
+    simulated: bool = False,
 ) -> np.ndarray:
-    """Devolve uma copia anotada com caixas, rotulos e faixa de status."""
+    """Devolve uma copia anotada com caixas, rotulos e faixa de status.
+
+    ``simulated`` marca o quadro com uma tarja vermelha: as caixas vieram do
+    detector simulado, nao da imagem. Sem isso elas parecem erros do YOLO.
+    """
     canvas = image.copy()
     for track in tracks:
         color = _ZONE_COLORS[Zone.CRITICAL] if track.distance_m and track.distance_m < 1.0 else (
@@ -39,7 +44,24 @@ def draw_tracks(
         _draw_caption(canvas, caption, x1, y1, color)
 
     _draw_status_bar(canvas, zone, nearest_distance_m, len(tracks))
+    if simulated:
+        _draw_simulated_banner(canvas)
     return canvas
+
+
+def _draw_simulated_banner(canvas: np.ndarray) -> None:
+    width = canvas.shape[1]
+    cv2.rectangle(canvas, (0, 0), (width, 26), (40, 40, 200), -1)
+    cv2.putText(
+        canvas,
+        "DETECTOR SIMULADO - caixas ficticias, nao vem da camera",
+        (8, 18),
+        _FONT,
+        0.5,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
 
 
 def _draw_caption(canvas: np.ndarray, text: str, x: int, y: int, color) -> None:

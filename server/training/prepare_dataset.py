@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DATASET_DIR = ROOT / "datasets" / "urbano"
 
 # Classes proprias do projeto. As classes COCO uteis (pessoa, carro, cadeira...)
-# continuam vindo dos pesos pre-treinados; aqui entram as que faltam.
+# continuam vindo do modelo COCO, que roda AO LADO do modelo treinado com este
+# dataset (AVS_VISION__EXTRA_MODEL_PATHS) -- o modelo treinado aqui so conhece
+# as classes abaixo e, sozinho, deixaria de ver pessoas (ver training/train.py).
 CLASSES = [
     "step",            # degrau
     "stairs",          # escada

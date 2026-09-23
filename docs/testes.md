@@ -17,7 +17,7 @@ hardware estão marcados.
 
 ```bash
 cd server
-uv run pytest -q            # 64 testes automatizados
+uv run pytest -q            # 85 testes automatizados
 uv run ruff check app
 ```
 
@@ -47,8 +47,9 @@ uv run python training/evaluate.py --benchmark-only --device 0     # com GPU
 ```
 
 Registre média, mediana, p95 e FPS estimado. Repita para
-`--imgsz 320 / 480 / 640` — a tabela resultante justifica a escolha de 480 como
-padrão.
+`--imgsz 320 / 480 / 640` — a tabela resultante, junto com a acurácia de cada
+tamanho (seção 2), justifica a escolha de 640 como padrão: é a resolução de
+treino do YOLO e a do quadro VGA da OV2640.
 
 **Critério:** p95 abaixo de 125 ms mantém os 8 quadros/s sem descarte.
 
@@ -56,19 +57,72 @@ padrão.
 
 ## 2. Acurácia da detecção
 
-**Objetivo:** mAP, precisão e revocação por classe.
+**Objetivo:** mAP, precisão e revocação por classe — e **que tipo de erro** o
+sistema comete.
 
-Com o dataset próprio anotado:
+### 2.1 Conjunto de avaliação
+
+Use imagens que o modelo **nunca viu no treino**. O COCO128, usado nas primeiras
+medições, é um recorte do conjunto de *treino* do COCO e infla os números. Os
+números de `docs/configuracao.md` vêm de 500 imagens do COCO val2017, sorteadas
+com semente fixa:
+
+```bash
+# rótulos no formato YOLO (48 MB); só a pasta val2017 é usada
+curl -LO https://github.com/ultralytics/assets/releases/download/v0.0.0/coco2017labels.zip
+unzip -q coco2017labels.zip "coco/labels/val2017/*"
+# 500 rótulos sorteados (random.Random(2026).shuffle) e as imagens de mesmo nome:
+#   http://images.cocodataset.org/val2017/<nome>.jpg
+# organizados como val500/images/val2017/*.jpg e val500/labels/val2017/*.txt
+```
+
+O conjunto que mais vale para o TCC, porém, é o **do próprio protótipo**:
+100 a 200 quadros da ESP32-CAM no ambiente de uso, anotados (Roboflow, CVAT ou
+Label Studio, exportando no formato YOLO). Mesmo 100 imagens já produzem números
+defensáveis para as classes de interesse.
+
+### 2.2 Medição
+
+```bash
+cd server
+# mAP oficial (curva completa)
+uv run python training/evaluate.py --weights ../models/yolo26s.pt --data caminho/data.yaml
+
+# o sistema como implantado: JPEG da borda, pré-processamento do servidor,
+# perfil de classes e limiar do servidor; erros separados por tipo
+uv run python training/pipeline_ablation.py --data caminho/val500 --weights yolo26s.pt
+```
+
+O `pipeline_ablation.py` classifica cada detecção em **acerto**, **fantasma**
+(nada real embaixo), **rótulo** (objeto real, nome errado), **duplicata** e
+**mal localizada**, e repete a medida com pouca luz, borrão de movimento, QVGA e
+CLAHE. Com `--json`, grava também precisão e revocação por classe e as confusões
+mais comuns (`caminhão -> carro`, `cadeira -> sofá`...).
+
+### 2.3 Modelo próprio (classes novas)
 
 ```bash
 uv run python training/prepare_dataset.py --split --source datasets/brutas
 uv run python training/train.py --epochs 100
-uv run python training/evaluate.py --weights runs/assistivo/weights/best.pt
+uv run python training/evaluate.py --weights ../runs/assistivo/weights/best.pt
 ```
 
-Sem dataset próprio, avalie os pesos COCO em um conjunto de imagens do ambiente
-de uso, anotadas manualmente — mesmo 100 imagens já produzem números
-defensáveis para as classes de interesse.
+O modelo treinado só conhece as classes do dataset: ele entra **ao lado** do
+modelo COCO (`AVS_VISION__EXTRA_MODEL_PATHS`), e não no lugar dele — ver
+`docs/arquitetura.md`, seção 9.
+
+Exemplo reproduzível com dados públicos, antes de ter o dataset próprio: portas,
+janelas, guarda-roupas e luminárias do HomeObjects-3K.
+
+```bash
+uv run python training/prepare_homeobjects.py        # baixa 390 MB, monta datasets/interiores
+uv run python training/train.py --data ../datasets/interiores/data.yaml --weights ../models/yolo26s.pt
+```
+
+Um treino curto de demonstração (yolo26n, 6 épocas em CPU) chegou a AP50 de
+42% (porta), 49% (janela), 48% (guarda-roupa) e 47% (luminária), contra 47%, 5%,
+5% e 19% do YOLOE sem treino, só com o nome da classe em texto. Rodando ao lado
+do `yolo26s`, a inferência em CPU passou de ~97 ms para ~135 ms por quadro.
 
 ---
 

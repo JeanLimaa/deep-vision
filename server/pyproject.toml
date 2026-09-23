@@ -10,7 +10,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "python-multipart>=0.0.12",
     "numpy>=1.26,<2.3",
-    "opencv-python-headless>=4.10",
+    "opencv-python>=4.10",
     "websockets>=13.0",
 ]
 

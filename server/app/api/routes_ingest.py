@@ -16,6 +16,7 @@ Dois transportes atendem ao mesmo pipeline:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import struct
@@ -117,8 +118,6 @@ async def ingest_audio(
     if not audio:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Audio vazio")
 
-    import asyncio
-
     transcript = await asyncio.to_thread(container.stt.transcribe, audio, content_type)
     if transcript is None:
         return CommandResultOut(understood=False, reply="Nao entendi o comando.")
@@ -146,6 +145,12 @@ async def stream(websocket: WebSocket) -> None:
     transport = WebSocketTransport(websocket)
     session = await container.registry.attach(device_id, transport)
     log.info("Dispositivo '%s' conectado por WebSocket", device_id)
+    # A visao roda numa tarefa propria. Assim o laco abaixo nunca espera a
+    # inferencia: telemetria do sonar e comandos sao tratados na hora, e um
+    # quadro que chega enquanto outro esta sendo inferido substitui o que
+    # estava na espera, em vez de entrar numa fila.
+    mailbox = LatestFrame()
+    worker = asyncio.create_task(_process_frames(container, session, websocket, mailbox))
 
     try:
         while True:
@@ -153,7 +158,7 @@ async def stream(websocket: WebSocket) -> None:
             if message.get("type") == "websocket.disconnect":
                 break
             if (payload := message.get("bytes")) is not None:
-                await _handle_binary(container, session, payload, websocket)
+                await _handle_binary(container, session, payload, websocket, mailbox)
             elif (text := message.get("text")) is not None:
                 await _handle_text(container, session, text, websocket)
     except WebSocketDisconnect:
@@ -164,13 +169,81 @@ async def stream(websocket: WebSocket) -> None:
             Event(EventType.ERROR, {"error": str(exc)}, device_id=device_id)
         )
     finally:
+        worker.cancel()
         transport.mark_closed()
         await container.registry.detach(device_id)
         log.info("Dispositivo '%s' desconectado", device_id)
 
 
+class LatestFrame:
+    """Caixa de um lugar so: o quadro novo toma o lugar do que ainda espera.
+
+    Antes, o laco de recepcao inferia cada quadro antes de ler a mensagem
+    seguinte. Com a inferencia (~140 ms) mais lenta que o intervalo entre
+    quadros (125 ms), os quadros se acumulavam no socket e a latencia crescia
+    sem limite -- 5 s depois de 100 s de uso, medido. Em video ao vivo, so o
+    quadro mais recente interessa.
+    """
+
+    def __init__(self) -> None:
+        self._frame: Frame | None = None
+        self._ready = asyncio.Event()
+
+    def put(self, frame: Frame) -> Frame | None:
+        """Guarda o quadro e devolve o que foi substituido, se havia um."""
+        replaced, self._frame = self._frame, frame
+        self._ready.set()
+        return replaced
+
+    async def get(self) -> Frame:
+        await self._ready.wait()
+        self._ready.clear()
+        frame, self._frame = self._frame, None
+        assert frame is not None
+        return frame
+
+
+async def _process_frames(
+    container: Container, session, websocket: WebSocket, mailbox: LatestFrame
+) -> None:
+    """Infere o quadro mais recente, um de cada vez, enquanto a conexao durar."""
+    try:
+        while True:
+            frame = await mailbox.get()
+            result = await container.pipeline.process_frame(session, frame)
+            # Em WebSocket as acoes ja foram entregues em tempo real; devolve so o
+            # resumo, util para o firmware ajustar a taxa de captura.
+            await _send_ack(
+                websocket,
+                result.sequence,
+                result.dropped,
+                len(result.detections),
+                result.inference_ms,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - conexao caiu no meio de um envio
+        log.debug("Processamento de quadros de '%s' encerrado: %s", session.device_id, exc)
+
+
+async def _send_ack(
+    websocket: WebSocket, sequence: int, dropped: bool, objects: int, inference_ms: float
+) -> None:
+    await websocket.send_text(
+        json.dumps(
+            {
+                "type": "frame_ack",
+                "sequence": sequence,
+                "dropped": dropped,
+                "objects": objects,
+                "inference_ms": inference_ms,
+            }
+        )
+    )
+
+
 async def _handle_binary(
-    container: Container, session, payload: bytes, websocket: WebSocket
+    container: Container, session, payload: bytes, websocket: WebSocket, mailbox: LatestFrame
 ) -> None:
     """Quadro binario: cabecalho fixo + corpo (JPEG ou audio)."""
     if len(payload) <= BINARY_HEADER.size:
@@ -185,23 +258,14 @@ async def _handle_binary(
             jpeg=body,
             captured_at_ms=timestamp or epoch_ms(),
         )
-        result = await container.pipeline.process_frame(session, frame)
-        # Em WebSocket as acoes ja foram entregues em tempo real; devolve so o
-        # resumo, util para o firmware ajustar a taxa de captura.
-        await websocket.send_text(
-            json.dumps(
-                {
-                    "type": "frame_ack",
-                    "sequence": result.sequence,
-                    "dropped": result.dropped,
-                    "objects": len(result.detections),
-                    "inference_ms": result.inference_ms,
-                }
-            )
-        )
+        replaced = mailbox.put(frame)
+        if replaced is not None:
+            # O substituido nunca sera inferido. O ack com dropped=True e o
+            # sinal para o dispositivo reduzir a taxa de envio.
+            session.stats.record_frame()
+            session.stats.record_dropped()
+            await _send_ack(websocket, replaced.sequence, True, 0, 0.0)
     elif kind == FRAME_MAGIC_AUDIO and container.stt.available:
-        import asyncio
-
         transcript = await asyncio.to_thread(container.stt.transcribe, body, "audio/wav")
         if transcript is not None:
             await container.commands.handle_text(session, transcript.text, source="device")

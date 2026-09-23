@@ -4,6 +4,14 @@ Parte de pesos pre-treinados no COCO e ajusta a rede para as classes do
 projeto. As metricas monitoradas sao as descritas no trabalho -- funcao de
 perda e mAP -- e ficam registradas em ``runs/`` para compor os resultados.
 
+Atencao ao que o modelo resultante sabe: SO as classes do dataset. Treinar com
+as 8 classes urbanas troca a cabeca de 80 saidas do COCO por uma de 8 -- o
+modelo passa a achar degraus e esquece pessoas e carros (esquecimento
+catastrofico). Por isso ele roda AO LADO do modelo COCO
+(``AVS_VISION__EXTRA_MODEL_PATHS``), e nao no lugar dele. Um modelo unico so e
+possivel se as imagens novas tambem forem rotuladas com as classes COCO que
+aparecem nelas -- do contrario a rede aprende que pessoa e fundo.
+
 Uso tipico:
 
     # 1. confira se o dataset esta no formato esperado
@@ -31,7 +39,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA = ROOT / "datasets" / "urbano" / "data.yaml"
-DEFAULT_WEIGHTS = ROOT / "models" / "yolov8n.pt"
+DEFAULT_WEIGHTS = ROOT / "models" / "yolo26s.pt"
 
 
 def check_dataset(data_yaml: Path) -> bool:
@@ -123,8 +131,18 @@ def train(args: argparse.Namespace) -> int:
     print(f"  mAP@0.5:0.95 : {metrics.box.map:.4f}")
     print(f"  precisao     : {metrics.box.mp:.4f}")
     print(f"  revocacao    : {metrics.box.mr:.4f}")
-    print(f"\nPesos: {args.project}/{args.name}/weights/best.pt")
-    print("Copie best.pt para models/ e aponte AVS_VISION__MODEL_PATH para ele.")
+    weights = args.project / args.name / "weights" / "best.pt"
+    print(f"\nPesos: {weights}")
+    names = set(model.names.values())
+    if "person" in names:
+        print("O dataset inclui as classes do COCO: o modelo pode substituir o principal")
+        print(f"  AVS_VISION__MODEL_PATH={weights.as_posix()}")
+    else:
+        # So as classes novas: substituir o principal apagaria pessoa, carro,
+        # cadeira... O modelo entra AO LADO do COCO, acrescentando classes.
+        print("O modelo conhece SO as classes do dataset -- nao substitua o principal.")
+        print("Use-o ao lado do modelo COCO, que continua detectando pessoa, carro etc.:")
+        print(f'  AVS_VISION__EXTRA_MODEL_PATHS=["{weights.as_posix()}"]')
     return 0
 
 

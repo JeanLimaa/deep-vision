@@ -10,6 +10,7 @@ import numpy as np
 
 from app.core.types import BoundingBox, Detection
 from app.settings import ROOT_DIR, VisionSettings
+from app.vision.detector import allowed_class_ids
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def _resolve_device(requested: str) -> str:
     try:
         import torch
 
-        if torch.cuda.is_available():
+        if _cuda_available(torch):
             return "cuda"
         if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             return "mps"
@@ -35,48 +36,103 @@ def _resolve_device(requested: str) -> str:
     return "cpu"
 
 
-# Pesos escolhidos quando ``model_path`` e "auto". Tempo por quadro medido com
-# entrada 640x480 e imgsz=640 (CPU de 6 threads / GTX 1650, media de 12-15):
+def _cuda_available(torch) -> bool:  # noqa: ANN001 - modulo importado tarde
+    """Como ``torch.cuda.is_available()``, mas diz no log POR QUE nao ha CUDA.
+
+    Com a placa NVIDIA presente e o driver antigo demais para o build do torch
+    (ex.: driver 512 com torch cu126), o torch so emite um UserWarning e o
+    servidor segue na CPU -- com o modelo menor e 4x mais lento -- sem que
+    ninguem perceba. Aqui o aviso vira uma linha de log com a solucao.
+    """
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        available = torch.cuda.is_available()
+    if not available:
+        for warning in caught:
+            text = str(warning.message)
+            if "driver" in text.lower():
+                log.warning(
+                    "GPU NVIDIA encontrada, mas o CUDA nao iniciou -- rodando na CPU. "
+                    "Atualize o driver da placa (o torch %s exige driver para CUDA %s). "
+                    "Detalhe: %s",
+                    torch.__version__,
+                    torch.version.cuda,
+                    text.split(". ")[0],
+                )
+                break
+    return available
+
+
+# Pesos escolhidos quando ``model_path`` e "auto". mAP50-95 medido em 500
+# imagens do COCO val2017 (nunca vistas no treino); tempo por quadro na CPU
+# Ryzen 5 5600H, imgsz=640, lote 1. GPU: GTX 1650 (medicao anterior, familia 11).
 #
-#     pesos      CPU        GPU     mAP50-95   VRAM (pico)
-#     yolo11n     46 ms     13 ms     39,5
-#     yolo11s     93 ms     17 ms     47,0
-#     yolo11m    226 ms     34 ms     51,5      0,22 GB
-#     yolo11l    278 ms     42 ms     53,4      0,33 GB
-#     yolo11x      --       79 ms     54,7      0,64 GB
+#     pesos      mAP50-95    CPU        GPU
+#     yolo11n     39,3      38 ms      13 ms
+#     yolo26n     41,0      37 ms
+#     yolo11s     46,5      83 ms      17 ms
+#     yolo26s     49,0      85 ms
+#     yolo11m     52,1     274 ms      34 ms
+#     yolo26m     53,2     269 ms
+#     yolo11l     54,1     346 ms      42 ms
+#     yolo26l     56,7     332 ms
 #
-# A familia 11 custa o mesmo da 8 em cada porte e acerta mais (47,0 contra 44,9
-# no porte "s"), entao nao ha motivo para ficar na 8.
+# A familia 26 acerta mais que a 11 em todo porte, pelo mesmo tempo (+2,5 pontos
+# no "s", +2,6 no "l"), e dispensa o NMS -- nao ha motivo para ficar na 11.
 #
 # O criterio e folga sobre o teto de max_inference_fps (8 quadros/s, a taxa que
-# a placa envia). Em CPU o "s" da 11 /s -- o "m", 4,4 /s, ja acumularia fila.
-# Em GPU o "l" da 24 /s (folga de 3x) por 0,33 GB de VRAM; o "x" custa o dobro
-# do tempo para 1,3 ponto de mAP e derrubaria a folga para 1,6x, que e pouco
-# para uma demonstracao ao vivo.
+# a placa envia). Em CPU o "s" da ~12 /s -- o "m", ~3,7 /s, ja acumularia fila.
+# Em GPU o "l" cabe com folga de ~3x.
 AUTO_MODEL_BY_DEVICE = {
-    "cpu": "yolo11s.pt",
-    "cuda": "yolo11l.pt",
-    # RX 6600 via DirectML: o "l" em 23 ms, folga de 5x (ver onnx_detector.py).
+    "cpu": "yolo26s.pt",
+    "cuda": "yolo26l.pt",
+    # RX 6600 via DirectML: o yolo11l em 23 ms, folga de 5x (ver onnx_detector.py).
+    # Fica na 11: a exportacao ONNX da 26 nao foi validada com DirectML.
     "directml": "yolo11l.pt",
     # Nao medido aqui: escolha conservadora, um porte abaixo do de CUDA.
-    "mps": "yolo11m.pt",
+    "mps": "yolo26m.pt",
 }
 
 
 def create_yolo_detector(settings: VisionSettings):  # noqa: ANN201 - dois backends
-    """Escolhe o backend pelo dispositivo: ONNX Runtime para DirectML, PyTorch
-    para o resto."""
+    """Modelo principal e, se configurados, os modelos extras ao lado dele."""
     device = _resolve_device(settings.device)
-    weights = _resolve_model_path(settings.model_path, device)
+    main = _create_one(settings, device, _resolve_model_path(settings.model_path, device))
+    if not settings.extra_model_paths:
+        return main
+    from app.vision.detector import CompositeDetector
+
+    extras = [
+        _create_one(settings, device, _resolve_model_path(path, device), filter_classes=False)
+        for path in settings.extra_model_paths
+    ]
+    return CompositeDetector(main, extras)
+
+
+def _create_one(  # noqa: ANN202 - dois backends
+    settings: VisionSettings, device: str, weights: str, filter_classes: bool = True
+):
+    """Escolhe o backend pelo dispositivo: ONNX Runtime para DirectML, PyTorch
+    para o resto. Modelos extras nao passam pelo filtro de classes: foram
+    acrescentados justamente pelas classes que trazem."""
     if device == "directml" or weights.endswith(".onnx"):
         from app.vision.onnx_detector import OnnxYoloDetector
 
-        return OnnxYoloDetector(settings, weights, use_gpu=device == "directml")
-    return YoloDetector(settings, device, weights)
+        return OnnxYoloDetector(
+            settings, weights, use_gpu=device == "directml", filter_classes=filter_classes
+        )
+    return YoloDetector(settings, device, weights, filter_classes=filter_classes)
 
 
 def _resolve_model_path(model_path: str, device: str) -> str:
-    """Procura o arquivo de pesos em ``models/`` antes de deixar o ultralytics baixar."""
+    """Procura o arquivo de pesos em ``models/``; se faltar, baixa para la.
+
+    Um nome solto (``yolo26s.pt``) vira ``models/yolo26s.pt``: o ultralytics
+    baixa os pesos oficiais para o caminho pedido, em vez de para a pasta de
+    onde o servidor foi iniciado.
+    """
     if model_path == "auto":
         model_path = AUTO_MODEL_BY_DEVICE.get(device, AUTO_MODEL_BY_DEVICE["cpu"])
         log.info("Pesos escolhidos automaticamente para '%s': %s", device, model_path)
@@ -85,6 +141,9 @@ def _resolve_model_path(model_path: str, device: str) -> str:
         return str(candidate)
     local = ROOT_DIR / "models" / candidate.name
     if local.exists():
+        return str(local)
+    if candidate.parent == Path("."):
+        local.parent.mkdir(parents=True, exist_ok=True)
         return str(local)
     return model_path
 
@@ -95,7 +154,11 @@ class YoloDetector:
     name = "yolo"
 
     def __init__(
-        self, settings: VisionSettings, device: str | None = None, weights: str | None = None
+        self,
+        settings: VisionSettings,
+        device: str | None = None,
+        weights: str | None = None,
+        filter_classes: bool = True,
     ) -> None:
         from ultralytics import YOLO  # import tardio: dependencia opcional
 
@@ -106,10 +169,24 @@ class YoloDetector:
         self._lock = threading.Lock()
         self._ready = False
         self._names: dict[int, str] = dict(self._model.names or {})
+        # Filtrar dentro do predict (e nao depois) poupa as vagas de max_det
+        # para as classes que interessam.
+        self._class_ids = (
+            allowed_class_ids(self._names, settings.allowed_labels) if filter_classes else None
+        )
 
     @property
     def ready(self) -> bool:
         return self._ready
+
+    @property
+    def labels(self) -> frozenset[str]:
+        return frozenset(self._names.values())
+
+    @property
+    def class_names(self) -> dict[int, str]:
+        """Id -> nome, na numeracao dos arquivos de rotulo do dataset do modelo."""
+        return dict(self._names)
 
     @property
     def device(self) -> str:
@@ -132,6 +209,7 @@ class YoloDetector:
                 conf=s.confidence_threshold,
                 iou=s.iou_threshold,
                 max_det=s.max_detections,
+                classes=self._class_ids,
                 device=self._device,
                 verbose=False,
             )

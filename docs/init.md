@@ -12,6 +12,7 @@ New-NetFirewallRule -DisplayName "TCC 8000" -Direction Inbound -Protocol TCP -Lo
 
 (para simular na webcam):
 python simulator/virtual_device.py --source 0 --preview
+server\.venv\Scripts\python simulator\virtual_device.py --source 0 --preview
 
 4. Gravar e abrir o monitor serial
 cd firmware\esp32cam
