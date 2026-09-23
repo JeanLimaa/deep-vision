@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -35,11 +35,15 @@ class VisionSettings(BaseModel):
     # esta em vision/yolo_detector.py e em docs/configuracao.md. Para fixar,
     # aponte AVS_VISION__MODEL_PATH para um arquivo (ex.: yolo11n.pt).
     model_path: str = "auto"
-    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
-    # 0.40 deixa passar falso positivo demais: objeto alongado na mao vira
-    # "toothbrush", textura de pele vira "cat". 0.50 corta esse ruido sem
-    # perder os objetos de interesse.
-    confidence_threshold: float = 0.50
+    # "directml" = qualquer GPU DirectX 12 no Windows (AMD, Intel), via ONNX Runtime.
+    device: Literal["auto", "cpu", "cuda", "mps", "directml"] = "auto"
+    # Revocacao/precisao no COCO128 com yolo11s (IoU >= 0,5):
+    #     conf 0,50 -> 46,6% / 91,9%     conf 0,35 -> 55,7% / 84,3%
+    #     conf 0,25 -> 61,7% / 77,9%
+    # 0,50 descartava quase um objeto real em cada cinco para ganhar 7 pontos de
+    # precisao. O ruido de quadro unico ("cat", "toothbrush") e cortado pelo
+    # rastreador (min_hits), que e o filtro certo para ele.
+    confidence_threshold: float = 0.35
     iou_threshold: float = 0.45
     max_detections: int = 20
     # Resolucao de entrada da rede. Multiplo de 32. E a resolucao em que os
@@ -70,12 +74,30 @@ class CameraSettings(BaseModel):
 
 class PreprocessSettings(BaseModel):
     enabled: bool = True
+    # Rotacao aplicada ao quadro recebido, em graus no sentido horario. A
+    # orientacao depende de como o modulo da camera foi montado, e uma imagem de
+    # cabeca para baixo praticamente zera a deteccao de pessoas -- o YOLO nunca
+    # viu o mundo invertido no treino. O certo e corrigir na camera
+    # (CAMERA_VFLIP no firmware); isto resolve sem regravar a placa, e e
+    # aplicado antes de tudo, entao o painel tambem sai na posicao certa.
+    # int em vez de Literal: variavel de ambiente chega como texto, e Literal de
+    # inteiros nao aceita "180" -- o campo e validado logo abaixo.
+    rotate_deg: int = 0
     denoise: bool = False
-    # Equalizacao adaptativa de histograma: ajuda no cenario de baixa
-    # luminosidade citado na Secao 6 do TCC.
-    clahe: bool = True
+    # Equalizacao adaptativa de histograma (CLAHE). Desligada: medida no COCO128
+    # com yolo11s, piorou a revocacao em todos os cenarios -- 46,6% -> 43,4% com
+    # boa luz e 32,5% -> 30,6% com a imagem escurecida, justamente o caso que
+    # deveria ajudar. Realca ruido e cria halos que o modelo nunca viu no treino.
+    clahe: bool = False
     clahe_clip_limit: float = 2.0
     clahe_tile_grid: int = 8
+
+    @field_validator("rotate_deg")
+    @classmethod
+    def _quarter_turns_only(cls, value: int) -> int:
+        if value not in (0, 90, 180, 270):
+            raise ValueError("rotate_deg deve ser 0, 90, 180 ou 270")
+        return value
 
 
 class TrackingSettings(BaseModel):
@@ -86,10 +108,11 @@ class TrackingSettings(BaseModel):
     #
     # E o filtro de falso positivo mais barato que existe aqui, e vale mais que
     # subir a confianca: o rastro so e narrado depois de min_hits quadros com o
-    # MESMO rotulo na MESMA regiao. A 8 quadros/s, 4 acertos sao meio segundo --
-    # nada para um objeto real, muito para o ruido de um quadro so que produz
-    # "toothbrush" ou "cat". Baixar para 2 devolve o comportamento antigo.
-    min_hits: int = 4
+    # MESMO rotulo na MESMA regiao. A 8 quadros/s, 3 acertos sao ~0,4 s -- pouco
+    # para um objeto real, muito para o ruido de um quadro so que produz
+    # "toothbrush" ou "cat". Com 4, a camera presa ao corpo balancava o bastante
+    # para o rastro se perder antes de ser confirmado.
+    min_hits: int = 3
 
 
 class ProximitySettings(BaseModel):
@@ -113,6 +136,11 @@ class NarrationSettings(BaseModel):
     # Intervalo minimo entre alertas de obstaculo da mesma zona.
     obstacle_cooldown_ms: int = 2500
     critical_cooldown_ms: int = 1200
+    # Validade de uma locucao na fila. O TTS leva segundos por frase e a fila
+    # acumula; "obstaculo a 1,3 metros" dito 5 s depois ja nao e verdade e induz
+    # o usuario ao erro. Respostas a comandos nao expiram: foram pedidas.
+    alert_max_age_ms: int = 2000
+    info_max_age_ms: int = 6000
     # Quantos objetos no maximo por locucao de cena.
     max_objects_per_utterance: int = 3
     # Anuncia distancia estimada junto do objeto.

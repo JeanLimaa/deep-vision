@@ -10,6 +10,10 @@ bool Camera::begin() {
   Serial.println("[camera] placa sem camera (HAS_CAMERA=0)");
   return false;
 #else
+  // Libera um driver de uma tentativa anterior que falhou pela metade; sem
+  // isso a reinicializacao devolve ESP_ERR_INVALID_STATE para sempre.
+  esp_camera_deinit();
+  _ready = false;
   _hasPsram = psramFound();
 
   camera_config_t config = {};
@@ -31,7 +35,7 @@ bool Camera::begin() {
   config.pin_sccb_scl = CAM_PIN_SIOC;
   config.pin_pwdn = CAM_PIN_PWDN;
   config.pin_reset = CAM_PIN_RESET;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = CAMERA_XCLK_HZ;
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (_hasPsram) {
@@ -71,10 +75,9 @@ void Camera::applySensorTuning() {
     return;
   }
 
-  // O OV2640 sai de fabrica com a imagem espelhada e de cabeca para baixo na
-  // montagem da AI-Thinker.
-  sensor->set_vflip(sensor, 1);
-  sensor->set_hmirror(sensor, 0);
+  // A orientacao depende da montagem do modulo; ver CAMERA_VFLIP em config.h.
+  sensor->set_vflip(sensor, CAMERA_VFLIP);
+  sensor->set_hmirror(sensor, CAMERA_HMIRROR);
 
   // Ganho e exposicao automaticos, com realce leve de contraste: ajuda nos
   // cenarios de baixa luminosidade apontados na Secao 6 do TCC.

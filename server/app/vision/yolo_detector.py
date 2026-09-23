@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 
 
 def _resolve_device(requested: str) -> str:
+    """Ordem de preferencia: CUDA (NVIDIA, ou AMD com ROCm no Linux), Apple,
+    DirectML (qualquer GPU DirectX 12 no Windows, AMD inclusive) e, por fim, CPU."""
     if requested != "auto":
         return requested
     try:
@@ -26,6 +28,10 @@ def _resolve_device(requested: str) -> str:
             return "mps"
     except Exception:  # noqa: BLE001
         pass
+    from app.vision.onnx_detector import directml_available
+
+    if directml_available():
+        return "directml"
     return "cpu"
 
 
@@ -50,9 +56,23 @@ def _resolve_device(requested: str) -> str:
 AUTO_MODEL_BY_DEVICE = {
     "cpu": "yolo11s.pt",
     "cuda": "yolo11l.pt",
+    # RX 6600 via DirectML: o "l" em 23 ms, folga de 5x (ver onnx_detector.py).
+    "directml": "yolo11l.pt",
     # Nao medido aqui: escolha conservadora, um porte abaixo do de CUDA.
     "mps": "yolo11m.pt",
 }
+
+
+def create_yolo_detector(settings: VisionSettings):  # noqa: ANN201 - dois backends
+    """Escolhe o backend pelo dispositivo: ONNX Runtime para DirectML, PyTorch
+    para o resto."""
+    device = _resolve_device(settings.device)
+    weights = _resolve_model_path(settings.model_path, device)
+    if device == "directml" or weights.endswith(".onnx"):
+        from app.vision.onnx_detector import OnnxYoloDetector
+
+        return OnnxYoloDetector(settings, weights, use_gpu=device == "directml")
+    return YoloDetector(settings, device, weights)
 
 
 def _resolve_model_path(model_path: str, device: str) -> str:
@@ -74,12 +94,14 @@ class YoloDetector:
 
     name = "yolo"
 
-    def __init__(self, settings: VisionSettings) -> None:
+    def __init__(
+        self, settings: VisionSettings, device: str | None = None, weights: str | None = None
+    ) -> None:
         from ultralytics import YOLO  # import tardio: dependencia opcional
 
         self._settings = settings
-        self._device = _resolve_device(settings.device)
-        self.model_path = _resolve_model_path(settings.model_path, self._device)
+        self._device = device or _resolve_device(settings.device)
+        self.model_path = weights or _resolve_model_path(settings.model_path, self._device)
         self._model = YOLO(self.model_path)
         self._lock = threading.Lock()
         self._ready = False

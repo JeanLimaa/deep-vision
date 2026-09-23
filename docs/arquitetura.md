@@ -169,7 +169,10 @@ firmware por NTP ou use o simulador, que já compartilha o relógio da máquina.
 - **Rastreio por IoU** não faz reidentificação: um objeto ocluído por vários
   quadros volta com identidade nova e é reanunciado.
 - **Baixa luminosidade** continua degradando a detecção, como o próprio TCC
-  relata. O CLAHE no canal de luminância ajuda, mas não resolve.
+  relata. O CLAHE no canal de luminância foi medido e **piorou** a revocação
+  inclusive no escuro (32,5% → 30,6% no COCO128 escurecido), por isso vem
+  desligado; a saída para o escuro é exposição/ganho na câmera ou treino com
+  imagens noturnas, não realce no servidor.
 - **Classes urbanas** (degrau, buraco, poste, placa) exigem o dataset próprio.
   A infraestrutura de treino e os rótulos em português já estão prontos; falta
   a coleta e anotação das imagens.

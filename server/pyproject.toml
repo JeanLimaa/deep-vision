@@ -21,6 +21,13 @@ vision = [
     "torch>=2.4",
     "torchvision>=0.19",
 ]
+# GPU AMD/Intel no Windows (DirectML). NAO instale o pacote "onnxruntime" junto:
+# os dois usam o mesmo nome de modulo e o de CPU vence, desligando a GPU.
+gpu-directml = [
+    "onnxruntime-directml>=1.18",
+    "onnx>=1.16",
+    "onnxslim>=0.1.40",
+]
 # Sintese de voz offline + reproducao no alto-falante do proprio servidor.
 audio = [
     "pyttsx3>=2.98",

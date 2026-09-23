@@ -98,13 +98,26 @@ class FrameSource:
                 self._capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 ok, frame = self._capture.read()
             if ok:
-                return cv2.resize(frame, (self.width, self.height))
+                return self._fit(frame)
         if self._images:
             image = cv2.imread(str(self._images[self._index % len(self._images)]))
             self._index += 1
             if image is not None:
-                return cv2.resize(image, (self.width, self.height))
+                return self._fit(image)
         return self._synthetic()
+
+    def _fit(self, image: np.ndarray) -> np.ndarray:
+        """Reduz para caber em width x height SEM mudar a proporcao.
+
+        Forcar 640x480 numa webcam 16:9 estreitava tudo em 33%: medido no
+        COCO128, isso sozinho custava 4 pontos de revocacao ao YOLO.
+        """
+        height, width = image.shape[:2]
+        scale = min(self.width / width, self.height / height, 1.0)
+        if scale == 1.0:
+            return image
+        size = (int(round(width * scale)), int(round(height * scale)))
+        return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
 
     def _synthetic(self) -> np.ndarray:
         """Cena artificial com formas em movimento.
@@ -506,8 +519,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="oscillate",
         help="Perfil das leituras do sensor ultrassonico",
     )
-    parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--width", type=int, default=640, help="Largura maxima (mantem a proporcao)")
+    parser.add_argument("--height", type=int, default=480, help="Altura maxima (mantem a proporcao)")
     parser.add_argument("--quality", type=int, default=88, help="Qualidade JPEG (1-100)")
     parser.add_argument(
         "--interactive", action="store_true", help="Habilita os botoes pelo teclado"

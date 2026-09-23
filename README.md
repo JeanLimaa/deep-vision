@@ -86,13 +86,21 @@ uv run ruff check app
 
 ## Aceleração por GPU (opcional)
 
-A instalação padrão traz o PyTorch para CPU (~40 ms por quadro, suficiente para
-os 8 quadros/s do projeto). Para usar a GPU:
+Sem GPU o servidor usa o `yolo11s` na CPU (~90 ms por quadro). Com GPU, o
+`AVS_VISION__DEVICE=auto` detecta a placa e sobe para o `yolo11l`, mais preciso:
 
-```bat
-cd server
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-```
+| Placa | Como instalar | yolo11l por quadro |
+|---|---|---|
+| **NVIDIA** | `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126` | ~42 ms (GTX 1650) |
+| **AMD / Intel** (Windows) | `uv pip install -e ".[gpu-directml]"` | ~23 ms (RX 6600) |
+
+Na AMD o modelo roda pelo ONNX Runtime com DirectML; o `.onnx` é exportado
+sozinho do `.pt` na primeira execução. **Não instale o pacote `onnxruntime`
+junto com o `onnxruntime-directml`**: os dois têm o mesmo nome de módulo, o de
+CPU vence e a GPU deixa de ser usada sem erro nenhum — o log de partida mostra
+`em directml` quando está certo.
+
+Medições de acurácia por modelo, limiar e pré-processamento: `docs/configuracao.md`.
 
 ## Estado do hardware
 

@@ -27,8 +27,8 @@ Listas usam sintaxe JSON.
 |---|---|---|
 | `AVS_VISION__BACKEND` | `auto` | `yolo`, `fake` ou `auto` (tenta YOLO, cai para `fake`) |
 | `AVS_VISION__MODEL_PATH` | `auto` | escolhe os pesos pelo dispositivo (ver abaixo); um caminho fixa o modelo, procurado em `models/` antes de baixar |
-| `AVS_VISION__DEVICE` | `auto` | `cpu`, `cuda`, `mps` |
-| `AVS_VISION__CONFIDENCE_THRESHOLD` | `0.50` | confiança mínima; abaixo de 0,45 aparecem falsos positivos com rótulo plausível |
+| `AVS_VISION__DEVICE` | `auto` | `cpu`, `cuda`, `mps`, `directml` (GPU AMD/Intel no Windows); `auto` tenta nessa ordem: CUDA, MPS, DirectML, CPU |
+| `AVS_VISION__CONFIDENCE_THRESHOLD` | `0.35` | confiança mínima; o ruído de quadro único é cortado pelo rastreador (`MIN_HITS`) |
 | `AVS_VISION__IOU_THRESHOLD` | `0.45` | supressão de não-máximos |
 | `AVS_VISION__MAX_DETECTIONS` | `20` | objetos por quadro |
 | `AVS_VISION__INFERENCE_SIZE` | `640` | lado maior da entrada da rede (múltiplo de 32); é a resolução de treino do YOLO |
@@ -56,6 +56,7 @@ precisão da distância estimada.
 |---|---|---|
 | `cpu` | `yolo11s.pt` | maior porte que ainda sustenta a taxa alvo |
 | `cuda` | `yolo11l.pt` | 3× de folga sobre o teto, por 0,33 GB de VRAM |
+| `directml` | `yolo11l.pt` | GPU AMD/Intel via ONNX Runtime; RX 6600 faz o `l` em 23 ms (5× de folga) |
 | `mps` | `yolo11m.pt` | não medido; escolha conservadora |
 
 Tempo por quadro medido nesta máquina — CPU de 6 threads e GeForce GTX 1650
@@ -98,41 +99,63 @@ AVS_VISION__MODEL_PATH=yolo11n.pt     # máquina fraca
 AVS_VISION__MODEL_PATH=models/best.pt # pesos refinados por training/train.py
 ```
 
-### Se o detector errar o rótulo
+### Medições que fixaram os padrões
 
-Na ordem em que vale testar:
+Revocação / precisão no COCO128 (128 imagens rotuladas, IoU ≥ 0,5, mesma
+classe), reproduzíveis com `server/training/pipeline_ablation.py`.
 
-1. `INFERENCE_SIZE` abaixo de 640 — o quadro é reduzido antes da inferência
-   (`pipeline/orchestrator.py`) *e* pelo próprio YOLO; abaixo da resolução de
-   treino a queda é visível;
-2. `CONFIDENCE_THRESHOLD` baixo — a 0,40 o `yolov8n` produz um fluxo de falsos
-   positivos de um quadro só, com rótulos plausíveis (`toothbrush` para objeto
-   alongado na mão, `cat` para textura de pele);
-3. `AVS_PREPROCESS__CLAHE=false` — o realce de contraste existe para o cenário
-   de baixa luminosidade da Seção 6; com iluminação boa ele adiciona contraste
-   local que o modelo não viu no treino. Vale medir com e sem;
-4. `AVS_TRACKING__MIN_HITS` — quantos quadros consecutivos o mesmo rótulo
-   precisa aparecer na mesma região antes de virar fala. É o filtro de falso
-   positivo mais barato do pipeline, e costuma valer mais que subir a
-   confiança: a 8 quadros/s, o padrão de 4 são meio segundo, nada para um
-   objeto real e muito para o ruído de um quadro só;
-5. `AVS_VISION__IGNORED_LABELS` — silencia classes que só produzem ruído no
+| Modelo | conf 0,50 | conf 0,35 | conf 0,25 |
+|---|---|---|---|
+| yolo11n | 38,6% / 93,7% | 46,5% / 85,2% | 51,9% / 73,9% |
+| yolo11s | 46,6% / 91,9% | 55,7% / 84,3% | 61,7% / 77,9% |
+| yolo11m | 49,9% / 92,8% | 58,1% / 86,4% | 63,8% / 80,7% |
+| yolo11l | 50,6% / 92,2% | 59,4% / 86,7% | 65,0% / 80,2% |
+
+Efeito do caminho da imagem (yolo11s, conf 0,50):
+
+| Variante | Revocação | Precisão |
+|---|---|---|
+| imagem original | 46,6% | 91,9% |
+| + CLAHE | 43,4% | 91,4% |
+| esticada para 4:3 (webcam 16:9) | 42,7% | 90,8% |
+| escurecida + ruído | 32,5% | 88,3% |
+| escurecida + ruído + CLAHE | 30,6% | 86,3% |
+
+### Se o detector errar ou deixar de ver
+
+Na ordem em que vale conferir:
+
+1. **Orientação da câmera** — uma imagem de cabeça para baixo praticamente
+   zera a detecção de pessoas. Confira no painel e ajuste `CAMERA_VFLIP` em
+   `firmware/esp32cam/include/config.h`;
+2. **Luz** — a OV2640 no escuro entrega pouco sinal e muito ruído; nenhum
+   ajuste do servidor recupera isso (ver a tabela acima);
+3. `INFERENCE_SIZE` abaixo de 640 — abaixo da resolução de treino a queda é visível;
+4. `CONFIDENCE_THRESHOLD` — subir reduz falsos positivos ao custo de perder
+   objetos reais (tabela acima);
+5. `AVS_TRACKING__MIN_HITS` — quantos quadros o mesmo rótulo precisa aparecer
+   na mesma região antes de virar fala. É o filtro certo para o ruído de um
+   quadro só (`cat`, `toothbrush`); alto demais, a câmera presa ao corpo
+   balança e o rastro se perde antes de ser confirmado;
+6. `AVS_VISION__IGNORED_LABELS` — silencia classes que só produzem ruído no
    ambiente de teste, sem mexer no detector.
 
 ### Fazendo o simulador valer como medida
 
 Os padrões do `simulator/virtual_device.py` espelham
-`firmware/esp32cam/include/config.h`: **640×480** (`FRAMESIZE_VGA`), **8
-quadros/s** (`FRAME_INTERVAL_MS 125`) e qualidade JPEG equivalente à
-`CAMERA_JPEG_QUALITY 12` do OV2640. Medida feita com outros valores não
-descreve o que a placa vai entregar — se mudar um, registre no texto.
+`firmware/esp32cam/include/config.h`: no máximo **640×480** (`FRAMESIZE_VGA`),
+**8 quadros/s** (`FRAME_INTERVAL_MS 125`). A imagem é reduzida **mantendo a
+proporção** — esticar uma webcam 16:9 para 4:3 custa 4 pontos de revocação.
+Medida feita com outros valores não descreve o que a placa vai entregar — se
+mudar um, registre no texto.
 
 ## Pré-processamento
 
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `AVS_PREPROCESS__ENABLED` | `true` | liga a cadeia inteira |
-| `AVS_PREPROCESS__CLAHE` | `true` | equalização adaptativa; ajuda em baixa luminosidade |
+| `AVS_PREPROCESS__ROTATE_DEG` | `0` | rotação do quadro recebido (`0`, `90`, `180`, `270`); imagem de cabeça para baixo praticamente zera a detecção de pessoas |
+| `AVS_PREPROCESS__CLAHE` | `false` | equalização adaptativa; medida, piorou a revocação em todos os cenários |
 | `AVS_PREPROCESS__CLAHE_CLIP_LIMIT` | `2.0` | agressividade da equalização |
 | `AVS_PREPROCESS__DENOISE` | `false` | filtro bilateral; custa ~8 ms por quadro |
 
@@ -141,7 +164,7 @@ descreve o que a placa vai entregar — se mudar um, registre no texto.
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `AVS_TRACKING__IOU_MATCH_THRESHOLD` | `0.30` | sobreposição mínima para casar quadros |
-| `AVS_TRACKING__MIN_HITS` | `2` | detecções antes de confirmar o objeto |
+| `AVS_TRACKING__MIN_HITS` | `3` | detecções antes de confirmar o objeto |
 | `AVS_TRACKING__MAX_MISSES` | `8` | quadros sem ver antes de descartar o rastro |
 
 ## Proximidade

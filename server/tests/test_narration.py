@@ -138,6 +138,24 @@ def test_interrupt_drops_lower_priority_backlog():
     assert scheduler.pop().text == "perigo"
 
 
+def test_stale_alert_is_dropped_instead_of_spoken_late():
+    scheduler = SpeechScheduler(NarrationSettings(alert_max_age_ms=2000))
+    scheduler.submit(Utterance("obstaculo a 1,3 metros", Priority.ALERT), at_ms=0)
+    assert scheduler.pop(at_ms=5000) is None
+
+
+def test_fresh_alert_is_still_spoken():
+    scheduler = SpeechScheduler(NarrationSettings(alert_max_age_ms=2000))
+    scheduler.submit(Utterance("obstaculo a 1,3 metros", Priority.ALERT), at_ms=0)
+    assert scheduler.pop(at_ms=1500).text == "obstaculo a 1,3 metros"
+
+
+def test_answer_to_user_never_expires():
+    scheduler = SpeechScheduler(NarrationSettings(info_max_age_ms=1000))
+    scheduler.submit(Utterance("uma cadeira a frente", Priority.ANSWER), at_ms=0)
+    assert scheduler.pop(at_ms=60_000).text == "uma cadeira a frente"
+
+
 def test_queue_never_grows_past_the_limit():
     scheduler = SpeechScheduler(NarrationSettings(), max_queue=3)
     for index in range(10):

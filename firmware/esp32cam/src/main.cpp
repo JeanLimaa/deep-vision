@@ -16,6 +16,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 
 #include "alerts.h"
 #include "buttons.h"
@@ -187,6 +188,61 @@ void pumpMicrophone() {
   }
 }
 
+/// Nome legivel do motivo do ultimo reinicio -- distingue queda de tensao
+/// (BROWNOUT) de travamento (WDT) e de reinicio normal, que e o que permite
+/// saber se o problema e de alimentacao ou de software.
+const char* resetReasonName() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "energia/reset";
+    case ESP_RST_BROWNOUT: return "QUEDA DE TENSAO (alimentacao insuficiente)";
+    case ESP_RST_PANIC: return "excecao do firmware";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT: return "watchdog (travamento)";
+    case ESP_RST_SW: return "reinicio pedido pelo firmware";
+    case ESP_RST_DEEPSLEEP: return "retorno do repouso";
+    default: return "desconhecido";
+  }
+}
+
+/// A camera falha ao iniciar quando a tensao cai no pico de corrente. Tentar de
+/// novo custa nada e recupera o video sem ninguem precisar reiniciar a placa.
+void pumpCameraRetry() {
+#if HAS_CAMERA
+  static uint32_t lastAttemptMs = 0;
+  if (g_camera.ready()) {
+    return;
+  }
+  const uint32_t nowMs = millis();
+  if (nowMs - lastAttemptMs < CAMERA_RETRY_INTERVAL_MS) {
+    return;
+  }
+  lastAttemptMs = nowMs;
+  Serial.println("[camera] tentando iniciar de novo...");
+  g_camera.begin();
+#endif
+}
+
+/// Sem Wi-Fi por tempo demais, reiniciar e a unica saida automatica. Enquanto
+/// o radio estiver caido o alerta local do sonar continua funcionando.
+void pumpNetworkWatchdog() {
+  static uint32_t offlineSinceMs = 0;
+  if (WiFi.status() == WL_CONNECTED) {
+    offlineSinceMs = 0;
+    return;
+  }
+  const uint32_t nowMs = millis();
+  if (offlineSinceMs == 0) {
+    offlineSinceMs = nowMs;
+    return;
+  }
+  if (nowMs - offlineSinceMs >= WIFI_RESTART_AFTER_MS) {
+    Serial.println("[wifi] sem rede ha tempo demais; reiniciando");
+    Serial.flush();
+    ESP.restart();
+  }
+}
+
 void logStatus() {
   const uint32_t nowMs = millis();
   if (nowMs - g_lastStatusMs < 5000) {
@@ -216,19 +272,26 @@ void setup() {
   digitalWrite(PIN_FLASH_LED, LOW);
 #endif
 
+  Serial.printf("[boot] motivo do ultimo reinicio: %s\n", resetReasonName());
+
   g_buzzer.begin();
   g_sonar.begin();
   g_buttons.begin();
   g_speaker.begin();
   g_microphone.begin();
 
+  // Wi-Fi primeiro, camera depois. A calibracao do radio e o maior pico de
+  // corrente do boot; com a camera ainda desligada, esse pico acontece sozinho.
+  // Fazer os dois juntos e o que derruba a placa quando a alimentacao esta no
+  // limite -- e foi o que o log mostrou ("Brownout detector was triggered").
+  connectWiFi();
+  delay(200);
+
   if (!g_camera.begin()) {
     // Sem camera o dispositivo ainda entrega a deteccao de obstaculos; nao ha
-    // motivo para parar por completo.
+    // motivo para parar por completo -- e ``pumpCameraRetry`` segue tentando.
     Serial.println("[setup] camera indisponivel; seguindo apenas com o sonar");
   }
-
-  connectWiFi();
 
   g_transport = createTransport();
   g_transport->onAction(handleServerAction);
@@ -248,7 +311,9 @@ void loop() {
 
   pumpSonar();
   pumpCamera();
+  pumpCameraRetry();
   pumpMicrophone();
+  pumpNetworkWatchdog();
   logStatus();
 
   // Cede o processador para a pilha Wi-Fi; sem isso o watchdog dispara.

@@ -31,11 +31,24 @@ class FramePreprocessor:
             else None
         )
 
+    _ROTATIONS = {
+        90: cv2.ROTATE_90_CLOCKWISE,
+        180: cv2.ROTATE_180,
+        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    }
+
     def decode(self, jpeg: bytes) -> np.ndarray | None:
-        """JPEG -> matriz BGR. Devolve ``None`` se o quadro chegou corrompido."""
+        """JPEG -> matriz BGR, ja na orientacao certa.
+
+        A rotacao vem antes de qualquer outra coisa: inferencia, caixas e painel
+        passam a trabalhar no mesmo referencial do mundo real.
+        """
         buffer = np.frombuffer(jpeg, dtype=np.uint8)
         image = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
-        return image if image is not None and image.size else None
+        if image is None or not image.size:
+            return None
+        rotation = self._ROTATIONS.get(self._settings.rotate_deg)
+        return image if rotation is None else cv2.rotate(image, rotation)
 
     def apply(self, image: np.ndarray) -> np.ndarray:
         if not self._settings.enabled:
