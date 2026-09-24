@@ -42,7 +42,7 @@
 // custo de metade da taxa bruta de captura -- em VGA ainda da ~12 quadros/s,
 // acima dos 8 que o projeto envia. Fica em 10 MHz porque a queda de tensao
 // (brownout) e o problema real desta placa, e nao a taxa de captura.
-#define CAMERA_XCLK_HZ 10000000
+#define CAMERA_XCLK_HZ 20000000
 
 // A inicializacao da camera falha quando a tensao cai no pico de corrente.
 // Em vez de seguir cego sem video, o firmware tenta de novo neste intervalo.
