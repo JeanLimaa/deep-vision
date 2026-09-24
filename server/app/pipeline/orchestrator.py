@@ -22,7 +22,7 @@ from dataclasses import replace
 from app.audio.output import AudioOutputService
 from app.core.events import Event, EventBus, EventType
 from app.core.schemas import DetectionOut, FrameResultOut, TelemetryIn
-from app.core.types import Frame, Priority, TrackedObject, Utterance, Zone, now_ms
+from app.core.types import Frame, Priority, TrackedObject, Utterance, Zone, epoch_ms, now_ms
 from app.devices.registry import DeviceRegistry
 from app.devices.session import DeviceSession
 from app.settings import Settings
@@ -85,6 +85,7 @@ class AssistivePipeline:
                 session.device_id,
             )
             return self._dropped(frame, session)
+        await self._save_raw(session, frame)
 
         started = time.perf_counter()
         tracks, inference_ms, width = await self._infer(session, image)
@@ -178,6 +179,19 @@ class AssistivePipeline:
         if self._settings.storage.save_annotated_frames and session.last_annotated_jpeg:
             path = self._settings.storage.snapshots_dir / f"{session.device_id}-{now_ms()}.jpg"
             await asyncio.to_thread(path.write_bytes, session.last_annotated_jpeg)
+
+    async def _save_raw(self, session: DeviceSession, frame: Frame) -> None:
+        """Guarda o JPEG da placa como chegou, sem caixas -- material para anotar."""
+        storage = self._settings.storage
+        if not storage.save_raw_frames:
+            return
+        at_ms = now_ms()
+        if at_ms - session.last_raw_saved_ms < storage.raw_frames_interval_ms:
+            return
+        session.last_raw_saved_ms = at_ms
+        # Horario no nome: a sequencia recomeca do 1 quando a placa reconecta.
+        path = storage.raw_dir / f"{session.device_id}-{epoch_ms()}-{frame.sequence}.jpg"
+        await asyncio.to_thread(path.write_bytes, frame.jpeg)
 
     def _narrate_objects(self, session: DeviceSession, tracks: list[TrackedObject]) -> None:
         for utterance in session.composer.compose_objects(tracks):

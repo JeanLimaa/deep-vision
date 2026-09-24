@@ -68,7 +68,7 @@ de propósito, use `AVS_VISION__BACKEND=fake`: o vídeo sai com a tarja vermelha
 | `server/app/pipeline/` | orquestrador do fluxo completo |
 | `server/app/api/` | rotas HTTP/WebSocket |
 | `server/app/web/` | painel de monitoramento |
-| `server/training/` | transferência de aprendizado, avaliação, análise dos ensaios |
+| `server/training/` | transferência de aprendizado, junção de datasets, notebook do Colab, avaliação, análise dos ensaios |
 | `simulator/` | ESP32-CAM virtual |
 | `firmware/esp32cam/` | firmware do nó de borda (PlatformIO) |
 | `docs/` | arquitetura, protocolo, hardware, roteiro de testes |
@@ -89,7 +89,7 @@ uv run pytest
 uv run ruff check app
 ```
 
-85 testes, sem hardware e sem modelo baixado.
+98 testes, sem hardware e sem modelo baixado.
 
 ## Aceleração por GPU (opcional)
 

@@ -17,7 +17,7 @@ hardware estão marcados.
 
 ```bash
 cd server
-uv run pytest -q            # 85 testes automatizados
+uv run pytest -q            # 98 testes automatizados
 uv run ruff check app
 ```
 
@@ -33,6 +33,70 @@ Ao final de cada ensaio:
 ```bash
 uv run python training/analyze_events.py --csv runs/ensaio-01.csv
 ```
+
+### Ensaio de campo (um dia, fora de casa)
+
+1. **Rede.** Wi-Fi de faculdade costuma isolar os aparelhos entre si e exigir
+   login em página, que a ESP32 não faz. Use o roteador do celular ou o
+   "Hotspot móvel" do Windows; ponha o IP do notebook nessa rede em
+   `SERVER_HOST` (`secrets.h`) e libere a porta 8000 no firewall.
+2. **Servidor gravando tudo** (PowerShell, em `server/`):
+
+   ```powershell
+   $env:AVS_STORAGE__LOG_EVENTS="true"; $env:AVS_STORAGE__SAVE_RAW_FRAMES="true"; $env:AVS_STORAGE__SAVE_ANNOTATED_FRAMES="true"
+   uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+
+   Confira no painel o selo `detector: yolo26... em cuda/cpu` antes de começar.
+3. **Durante o ensaio:** anote hora, local e condição (corredor claro, sala,
+   pouca luz, andando/parado) de cada trecho — os arquivos saem com o horário no
+   nome, e é assim que se separa depois cada condição.
+4. **Depois:** renomeie `var/events.jsonl` por ensaio e rode
+   `analyze_events.py` (latência, quadros/s, falas por minuto). Dos quadros de
+   `var/raw/`, anote 100 a 200 (Roboflow, CVAT ou Label Studio, formato YOLO) e
+   rode `pipeline_ablation.py` sobre eles — é a precisão e a revocação **no seu
+   ambiente**, com a sua câmera. Os de `var/snapshots/` viram as figuras.
+
+### Do ensaio ao modelo ajustado
+
+1. **Ensaio em duas configurações**, com a gravação de quadros crus ligada:
+   (A) só COCO — o padrão — e (B) COCO + Objects365
+   (`AVS_VISION__EXTRA_MODEL_PATHS=["yolo26l-objv1-150.pt"]`). Ao vivo se observa
+   latência, quadros/s e comportamento da narração; a **comparação de acurácia**
+   é feita depois, nas mesmas imagens anotadas (passo 5), porque duas passagens
+   ao vivo nunca veem a mesma cena. Grave em **3 ou mais sessões** (locais ou
+   horários diferentes, com 10 min ou mais entre elas): o teste será formado por
+   sessões inteiras que o modelo nunca viu.
+2. **Pré-rótulos** (na máquina com a GPU):
+
+   ```bash
+   uv run python training/build_dataset.py prelabel --images var/raw --out ../datasets/esp_pre
+   ```
+
+   Guarda 1 quadro a cada 5 s (vizinhos são quase iguais) e marca as 29 classes
+   com os professores (`yolo26l` + Objects365).
+3. **Revisão no CVAT** (cvat.ai, projeto privado; a equipe pode dividir as
+   tarefas): crie a tarefa com as imagens de `esp_pre/images`, importe
+   `cvat_yolo_1.1.zip` como *YOLO 1.1* e corrija — apague o que está errado,
+   ajuste caixas e **desenhe o que falta**, principalmente degrau, meio-fio,
+   escada e porta, que nenhum professor pronto conhece. Ignore objetos com menos
+   de ~15 pixels. Exporte como *YOLO 1.1* **com as imagens** e salve no Drive
+   como `deep-vision/esp_revisado.zip`.
+4. **Treino no Colab**: abra `server/training/colab_treino.ipynb` no Colab e rode
+   as células em ordem. São duas rodadas, e o notebook descobre sozinho em qual
+   está: **sem** `esp_revisado.zip` no Drive, treina só com os dados públicos
+   (`assistivo-publico.pt`, que já detecta escada, degrau, meio-fio, porta e
+   faixa — dá para rodar antes mesmo do ensaio); **com** o zip, faz o ajuste
+   fino a partir da rodada 1 (`assistivo-final.pt`). O professor das classes
+   novas e o dataset montado ficam no Drive e não são refeitos.
+5. **Resultado**: a célula 7 compara as três configurações — COCO, COCO +
+   Objects365 e o modelo ajustado — **no mesmo teste da ESP**, com precisão,
+   revocação, tipos de erro e mAP por classe. É a tabela de antes e depois do
+   capítulo de resultados.
+6. **No servidor**: `AVS_VISION__MODEL_PATH=assistivo-final.pt`, sem modelos extras.
+
+Rostos de terceiros nas imagens: mantenha o projeto do CVAT e o Drive
+privados e não publique o dataset sem consentimento (LGPD).
 
 ---
 
@@ -118,6 +182,14 @@ janelas, guarda-roupas e luminárias do HomeObjects-3K.
 uv run python training/prepare_homeobjects.py        # baixa 390 MB, monta datasets/interiores
 uv run python training/train.py --data ../datasets/interiores/data.yaml --weights ../models/yolo26s.pt
 ```
+
+**Onde treinar.** A GTX 1650 (4 GB) treina bem o `yolo26n` com o backbone
+congelado: ~3,5 iterações/s com lote 16, cerca de 1 a 1,5 min por época nesse
+dataset — 11× a CPU. Modelos maiores não cabem: o ultralytics desliga a precisão
+mista (AMP) na série GTX 16, o treino em FP32 passa dos 4 GB e o driver
+transborda para a RAM do sistema (o `yolo26s` caiu para ~3,6 s por iteração,
+mais de 30 min por época). Para `s`, `m` ou `l`, use uma GPU de nuvem
+(Colab ou Kaggle, 16 GB e precisão mista).
 
 Um treino curto de demonstração (yolo26n, 6 épocas em CPU) chegou a AP50 de
 42% (porta), 49% (janela), 48% (guarda-roupa) e 47% (luminária), contra 47%, 5%,

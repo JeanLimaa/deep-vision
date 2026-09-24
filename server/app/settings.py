@@ -44,8 +44,10 @@ class VisionSettings(BaseModel):
     # aponte AVS_VISION__MODEL_PATH para um arquivo (ex.: yolo26n.pt).
     model_path: str = "auto"
     # Modelos que rodam ao lado do principal e so ACRESCENTAM classes que ele
-    # nao tem -- tipicamente um modelo treinado em training/ com degrau, porta,
-    # poste. Ex.: AVS_VISION__EXTRA_MODEL_PATHS=["runs/urbano/weights/best.pt"]
+    # nao tem, filtradas pelo mesmo allowed_labels. Ex.: o YOLO26 do Objects365,
+    # pronto, acrescenta poste de luz, cone, placa e lixeira:
+    #   AVS_VISION__EXTRA_MODEL_PATHS=["yolo26s-objv1-150.pt"]
+    # ou um modelo treinado em training/ com degrau e porta.
     extra_model_paths: list[str] = Field(default_factory=list)
     # "directml" = qualquer GPU DirectX 12 no Windows (AMD, Intel), via ONNX Runtime.
     device: Literal["auto", "cpu", "cuda", "mps", "directml"] = "auto"
@@ -221,6 +223,13 @@ class StorageSettings(BaseModel):
     # Grava quadros anotados para uso nas figuras do TCC.
     save_annotated_frames: bool = False
     snapshots_dir: Path = VAR_DIR / "snapshots"
+    # Grava o JPEG exatamente como chegou da placa, sem caixas, no maximo um a
+    # cada raw_frames_interval_ms. E o material para anotar e medir precisao e
+    # revocacao no ambiente real (docs/testes.md, secao 2) -- o quadro anotado
+    # nao serve para isso, as caixas do proprio detector estariam desenhadas.
+    save_raw_frames: bool = False
+    raw_frames_interval_ms: int = 1000
+    raw_dir: Path = VAR_DIR / "raw"
     event_log_path: Path = VAR_DIR / "events.jsonl"
     log_events: bool = True
 
@@ -253,6 +262,7 @@ class Settings(BaseSettings):
         for path in (
             self.storage.var_dir,
             self.storage.snapshots_dir,
+            self.storage.raw_dir,
             self.tts.cache_dir,
             self.storage.event_log_path.parent,
         ):

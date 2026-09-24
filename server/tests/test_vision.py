@@ -15,6 +15,7 @@ from app.vision.detector import (
     build_detector,
 )
 from app.vision.fake_detector import FakeDetector
+from app.vision.labels import COCO_PT, MOBILITY_LABELS, canonical_label, label_pt
 from app.vision.spatial import SpatialEstimator, describe_distance
 from app.vision.tracking import RELABEL_IOU, IouTracker
 
@@ -176,6 +177,23 @@ def test_extra_model_only_adds_classes_the_main_model_lacks():
     assert labels == ["person", "stairs"]
     assert composite.labels == {"person", "chair", "stairs"}
     assert composite.model_path == "yolo26s.pt + urbano.pt"
+
+
+def test_every_mobility_label_is_spoken_in_portuguese():
+    # Sem traducao, a narracao falaria "a street lights, a frente".
+    missing = [label for label in MOBILITY_LABELS if label not in COCO_PT]
+    assert missing == []
+    # "ladder" e escada de mao; "escada" sozinha faria o usuario esperar degraus.
+    assert label_pt("ladder") == "escada de mao"
+
+
+def test_other_datasets_names_map_to_the_project_vocabulary():
+    # O Objects365 chama poste de "street lights": modelo extra, dataset de
+    # treino e avaliacao precisam falar do mesmo objeto com o mesmo nome.
+    assert canonical_label("street lights") == "pole"
+    assert canonical_label("trash bin/can") == "trash can"
+    assert canonical_label("person") == "person"
+    assert {"pole", "trash can"} <= MOBILITY_LABELS
 
 
 def test_yolo_backend_fails_loudly_instead_of_faking(monkeypatch):

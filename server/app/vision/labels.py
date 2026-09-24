@@ -103,7 +103,37 @@ COCO_PT: dict[str, tuple[str, str]] = {
     "window": ("janela", "uma"),
     "wardrobe": ("guarda-roupa", "um"),
     "lamp": ("luminaria", "uma"),
+    # Classes do Objects365 (yolo26*-objv1-150.pt, usado como modelo extra) que o
+    # COCO nao tem. "ladder" e escada de mao: chamar de "escada" faria o usuario
+    # esperar degraus.
+    "traffic cone": ("cone", "um"),
+    "traffic sign": ("placa", "uma"),
+    "trash can": ("lixeira", "uma"),
+    "stool": ("banqueta", "uma"),
+    "wheelchair": ("cadeira de rodas", "uma"),
+    "stroller": ("carrinho de bebe", "um"),
+    "crosswalk sign": ("placa de faixa de pedestres", "uma"),
+    "barrel/bucket": ("balde", "um"),
+    "fire extinguisher": ("extintor", "um"),
+    "machinery vehicle": ("maquina de obra", "uma"),
+    "tricycle": ("triciclo", "um"),
+    "ladder": ("escada de mao", "uma"),
 }
+
+# Nomes que outros datasets dao a classes do vocabulario do projeto. Todo
+# detector passa os rotulos por aqui, para que modelo principal, modelos extras,
+# datasets de treino (training/build_dataset.py) e avaliacao usem o mesmo nome.
+LABEL_ALIASES: dict[str, str] = {
+    # Objects365 (yolo26*-objv1-150.pt)
+    "street lights": "pole",
+    "trash bin/can": "trash can",
+}
+
+
+def canonical_label(label: str) -> str:
+    """Nome do rotulo no vocabulario do projeto (``street lights`` -> ``pole``)."""
+    return LABEL_ALIASES.get(label, label)
+
 
 # Altura media real, em metros. Base do modelo pinhole em ``vision.spatial``.
 # Valores aproximados: servem para uma estimativa grosseira ("cerca de 2 metros"),
@@ -145,6 +175,12 @@ OBJECT_HEIGHTS_M: dict[str, float] = {
     "clock": 0.30,
     "door": 2.05,
     "wardrobe": 1.90,
+    "traffic cone": 0.70,
+    "trash can": 0.95,
+    "stool": 0.65,
+    "wheelchair": 0.95,
+    "stroller": 1.00,
+    "fire extinguisher": 0.55,
     "pole": 3.00,
     "stairs": 1.00,
     "step": 0.18,
@@ -175,7 +211,14 @@ MOBILITY_LABELS: frozenset[str] = frozenset(
         "bottle", "cup", "vase",
         # classes proprias previstas para o modelo refinado (training/)
         "step", "stairs", "pothole", "pole", "curb", "tactile paving", "door", "crosswalk",
-        "window", "wardrobe", "lamp",
+        # guarda-roupa sim, janela e luminaria nao: aparecem em quase todo comodo e
+        # nao mudam o caminho de ninguem (com o Objects365, "luminaria" saia em
+        # toda sala). Quem quiser, acrescenta em AVS_VISION__ALLOWED_LABELS.
+        "wardrobe",
+        # obstaculos que so o Objects365 conhece (modelo extra yolo26*-objv1-150.pt)
+        "traffic cone", "traffic sign", "trash can", "stool",
+        "wheelchair", "stroller", "crosswalk sign", "barrel/bucket", "fire extinguisher",
+        "machinery vehicle", "tricycle", "ladder",
     }
 )
 
@@ -194,6 +237,8 @@ HAZARD_LABELS: frozenset[str] = frozenset(
         "stairs",
         "pole",
         "curb",
+        "traffic cone",
+        "machinery vehicle",
     }
 )
 

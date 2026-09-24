@@ -156,7 +156,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--batch", type=int, default=-1, help="-1 ajusta o lote a memoria disponivel"
     )
     parser.add_argument("--device", default="0", help="'0' para a primeira GPU, 'cpu' para CPU")
-    parser.add_argument("--workers", type=int, default=4)
+    # No Windows cada processo auxiliar carrega as DLLs do CUDA inteiras; com 8
+    # deles (e o servidor rodando na GPU) a memoria virtual acabou -- "arquivo de
+    # paginacao muito pequeno" (WinError 1455). 2 mantem a GPU ocupada no yolo26n.
+    parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--patience", type=int, default=25, help="parada antecipada")
     parser.add_argument("--freeze", type=int, default=10, help="camadas congeladas do backbone")
     parser.add_argument("--seed", type=int, default=42)

@@ -28,6 +28,7 @@ import numpy as np
 from app.core.types import BoundingBox, Detection
 from app.settings import VisionSettings
 from app.vision.detector import allowed_class_ids
+from app.vision.labels import canonical_label
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +101,6 @@ class OnnxYoloDetector:
         settings: VisionSettings,
         weights: str,
         use_gpu: bool = True,
-        filter_classes: bool = True,
     ) -> None:
         import onnxruntime as ort
 
@@ -121,9 +121,10 @@ class OnnxYoloDetector:
         self._input_h, self._input_w = (int(v) for v in model_input.shape[2:4])
         metadata = self._session.get_modelmeta().custom_metadata_map
         self._names: dict[int, str] = {
-            int(k): str(v) for k, v in ast.literal_eval(metadata.get("names", "{}")).items()
+            int(k): canonical_label(str(v))
+            for k, v in ast.literal_eval(metadata.get("names", "{}")).items()
         }
-        ids = allowed_class_ids(self._names, settings.allowed_labels) if filter_classes else None
+        ids = allowed_class_ids(self._names, settings.allowed_labels)
         self._class_ids = None if ids is None else np.array(ids)
         self._lock = threading.Lock()
         self._ready = False
@@ -134,7 +135,10 @@ class OnnxYoloDetector:
 
     @property
     def labels(self) -> frozenset[str]:
-        return frozenset(self._names.values())
+        """Rotulos que o detector pode devolver -- ja descontado o filtro de classes."""
+        if self._class_ids is None:
+            return frozenset(self._names.values())
+        return frozenset(self._names[int(i)] for i in self._class_ids)
 
     @property
     def device(self) -> str:

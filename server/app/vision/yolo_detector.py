@@ -11,6 +11,7 @@ import numpy as np
 from app.core.types import BoundingBox, Detection
 from app.settings import ROOT_DIR, VisionSettings
 from app.vision.detector import allowed_class_ids
+from app.vision.labels import canonical_label
 
 log = logging.getLogger(__name__)
 
@@ -105,25 +106,21 @@ def create_yolo_detector(settings: VisionSettings):  # noqa: ANN201 - dois backe
     from app.vision.detector import CompositeDetector
 
     extras = [
-        _create_one(settings, device, _resolve_model_path(path, device), filter_classes=False)
+        _create_one(settings, device, _resolve_model_path(path, device))
         for path in settings.extra_model_paths
     ]
     return CompositeDetector(main, extras)
 
 
-def _create_one(  # noqa: ANN202 - dois backends
-    settings: VisionSettings, device: str, weights: str, filter_classes: bool = True
-):
+def _create_one(settings: VisionSettings, device: str, weights: str):  # noqa: ANN202
     """Escolhe o backend pelo dispositivo: ONNX Runtime para DirectML, PyTorch
-    para o resto. Modelos extras nao passam pelo filtro de classes: foram
-    acrescentados justamente pelas classes que trazem."""
+    para o resto. Extras tambem passam pelo perfil de classes: um modelo do
+    Objects365 traz poste e lixeira, mas tambem tenis, chapeu e oculos."""
     if device == "directml" or weights.endswith(".onnx"):
         from app.vision.onnx_detector import OnnxYoloDetector
 
-        return OnnxYoloDetector(
-            settings, weights, use_gpu=device == "directml", filter_classes=filter_classes
-        )
-    return YoloDetector(settings, device, weights, filter_classes=filter_classes)
+        return OnnxYoloDetector(settings, weights, use_gpu=device == "directml")
+    return YoloDetector(settings, device, weights)
 
 
 def _resolve_model_path(model_path: str, device: str) -> str:
@@ -158,7 +155,6 @@ class YoloDetector:
         settings: VisionSettings,
         device: str | None = None,
         weights: str | None = None,
-        filter_classes: bool = True,
     ) -> None:
         from ultralytics import YOLO  # import tardio: dependencia opcional
 
@@ -168,12 +164,13 @@ class YoloDetector:
         self._model = YOLO(self.model_path)
         self._lock = threading.Lock()
         self._ready = False
-        self._names: dict[int, str] = dict(self._model.names or {})
+        # Nomes ja no vocabulario do projeto (Objects365 "street lights" -> "pole").
+        self._names: dict[int, str] = {
+            int(i): canonical_label(str(n)) for i, n in (self._model.names or {}).items()
+        }
         # Filtrar dentro do predict (e nao depois) poupa as vagas de max_det
         # para as classes que interessam.
-        self._class_ids = (
-            allowed_class_ids(self._names, settings.allowed_labels) if filter_classes else None
-        )
+        self._class_ids = allowed_class_ids(self._names, settings.allowed_labels)
 
     @property
     def ready(self) -> bool:
@@ -181,7 +178,10 @@ class YoloDetector:
 
     @property
     def labels(self) -> frozenset[str]:
-        return frozenset(self._names.values())
+        """Rotulos que o detector pode devolver -- ja descontado o filtro de classes."""
+        if self._class_ids is None:
+            return frozenset(self._names.values())
+        return frozenset(self._names[i] for i in self._class_ids)
 
     @property
     def class_names(self) -> dict[int, str]:
@@ -222,7 +222,7 @@ class YoloDetector:
         boxes = getattr(result, "boxes", None)
         if boxes is None or len(boxes) == 0:
             return []
-        names = getattr(result, "names", None) or self._names
+        names = self._names
         xyxy = boxes.xyxy.cpu().numpy()
         confs = boxes.conf.cpu().numpy()
         classes = boxes.cls.cpu().numpy().astype(int)

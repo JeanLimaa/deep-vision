@@ -157,7 +157,12 @@ def run_variant(name, images, detector, settings, names, args, counted_labels):
     truth_total, found_total, times = 0, 0, []
 
     for path in images:
-        image = preprocessor.decode(device_jpeg(transform(cv2.imread(str(path))), args.quality))
+        original = cv2.imread(str(path))
+        if args.as_is:
+            # Quadro que ja veio da placa: recomprimir seria degradar duas vezes.
+            image = transform(original)
+        else:
+            image = preprocessor.decode(device_jpeg(transform(original), args.quality))
         height, width = image.shape[:2]
         label_path = Path(str(path).replace("images", "labels")).with_suffix(".txt")
         truth_labels, truth_boxes = load_labels(label_path, names, width, height)
@@ -211,19 +216,27 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", choices=list(VARIANTS), help="variantes a rodar")
     parser.add_argument("--all-classes", action="store_true", help="desliga o perfil de mobilidade")
     parser.add_argument("--names", type=Path, help="data.yaml com os nomes; padrao = do modelo")
+    parser.add_argument("--extra", nargs="*", default=[],
+                        help="modelos extras, como no servidor (ex.: yolo26l-objv1-150.pt)")
+    parser.add_argument("--split", help="so images/<split> (ex.: test, o teste da ESP)")
+    parser.add_argument("--as-is", action="store_true",
+                        help="imagens ja sao quadros da placa: nao recomprime o JPEG")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--json", type=Path, help="grava o resultado completo")
     args = parser.parse_args()
 
     from app.vision.yolo_detector import create_yolo_detector
 
-    overrides = {"backend": "yolo", "model_path": args.weights, "device": args.device}
+    overrides = {"backend": "yolo", "model_path": args.weights, "device": args.device,
+                 "extra_model_paths": args.extra}
     if args.conf is not None:
         overrides["confidence_threshold"] = args.conf
     if args.all_classes:
         overrides["allowed_labels"] = []
     settings = VisionSettings(**overrides)
     detector = create_yolo_detector(settings)
+    if not args.names and not hasattr(detector, "class_names"):
+        raise SystemExit("Com --extra, informe --names (o data.yaml do conjunto de teste).")
 
     if args.names:
         import yaml
@@ -238,11 +251,12 @@ def main() -> None:
     counted = None if args.all_classes else set(settings.allowed_labels)
 
     suffixes = {".jpg", ".jpeg", ".png"}
-    images = sorted(p for p in (args.data / "images").rglob("*") if p.suffix.lower() in suffixes)
+    folder = args.data / "images" / (args.split or "")
+    images = sorted(p for p in folder.rglob("*") if p.suffix.lower() in suffixes)
     if args.limit:
         images = images[: args.limit]
     if not images:
-        raise SystemExit(f"Nenhuma imagem em {args.data / 'images'}")
+        raise SystemExit(f"Nenhuma imagem em {folder}")
 
     profile = "todas" if args.all_classes else "perfil de mobilidade"
     print(f"{Path(detector.model_path).name}  conf={settings.confidence_threshold}  "

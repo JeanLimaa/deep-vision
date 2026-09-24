@@ -63,19 +63,22 @@ precisão da distância estimada.
 
 Acurácia medida em **500 imagens do COCO val2017** — imagens que o modelo nunca
 viu no treino (o procedimento está em `docs/testes.md`) — e tempo por quadro na
-CPU desta máquina (Ryzen 5 5600H, 6 núcleos), `imgsz=640`, lote 1. A coluna GPU
-é da GeForce GTX 1650, medida antes para a família 11:
+CPU desta máquina (Ryzen 5 5600H, 6 núcleos) e na GeForce GTX 1650 (4 GB,
+driver 617), `imgsz=640`, lote 1:
 
 | Pesos | mAP50-95 | mAP50 | CPU | GPU |
 |---|---|---|---|---|
 | `yolo11n.pt` | 39,3 | 54,4 | 38 ms | 13 ms |
 | `yolo26n.pt` | 41,0 | 56,1 | 37 ms | |
 | `yolo11s.pt` | 46,5 | 63,0 | 83 ms | 17 ms |
-| **`yolo26s.pt`** | **49,0** | **66,0** | **85 ms** | |
+| **`yolo26s.pt`** | **49,0** | **66,0** | **85 ms** | 17 ms |
 | `yolo11m.pt` | 52,1 | 69,3 | 274 ms | 34 ms |
 | `yolo26m.pt` | 53,2 | 69,9 | 269 ms | |
 | `yolo11l.pt` | 54,1 | 69,7 | 346 ms | 42 ms |
-| **`yolo26l.pt`** | **56,7** | **74,0** | 332 ms | |
+| **`yolo26l.pt`** | **56,7** | **74,0** | 332 ms | **41 ms** |
+
+Com o Objects365 como modelo extra, `yolo26l` + `yolo26s-objv1-150` levam 58 ms
+por quadro na GTX 1650 (~17 /s): ainda o dobro dos 8 quadros/s da placa.
 
 A família 26 custa o mesmo da 11 em cada porte e acerta mais (+2,5 pontos no
 `s`, +2,6 no `l`); também dispensa o NMS, a etapa que produzia duas caixas com
@@ -166,6 +169,41 @@ câmera presa ao peito; as mesmas detecções alimentam os dois rastreadores):
 
 O custo é revocação: 40,2% → 37,2% das caixas exibidas, porque o objeto que
 some deixa de ser desenhado em 2 quadros em vez de 8.
+
+### Mais classes sem treinar: modelos de outros datasets
+
+O mAP publicado de cada família não se compara entre datasets — o YOLO26l tem
+55,0 no COCO e o YOLOv8l tem 34,9 no Open Images, mas são provas diferentes
+(600 classes, anotação hierárquica). A comparação justa é no **mesmo teste**:
+500 imagens do COCO val, AP50 médio nas 37 classes de mobilidade que os três
+datasets têm em comum, rótulos equivalentes mapeados (Person/Man/Woman → pessoa):
+
+| Pesos | Treinados em | AP50 | CPU |
+|---|---|---|---|
+| **`yolo26l.pt`** | COCO (80 classes) | **70,2%** | 266 ms |
+| `yolo26l-objv1-150.pt` | Objects365 (365) | 60,9% | 271 ms |
+| `yolov8l-oiv7.pt` | Open Images V7 (601) | 35,8% | 424 ms |
+| `yolo26s.pt` | COCO | 63,3% | 77 ms |
+| `yolo26s-objv1-150.pt` | Objects365 | 56,0% | 82 ms |
+| `yolov8s-oiv7.pt` | Open Images V7 | 30,3% | 94 ms |
+
+O teste favorece o COCO (é o "terreno" dele), mas a conclusão prática vale: nas
+classes comuns o modelo COCO é o melhor principal. O valor dos outros é o que
+**só eles** têm:
+
+- **Objects365** — poste de luz, cone, placa, lixeira, banqueta, cadeira de
+  rodas, carrinho de bebê, extintor. Nas detecções mais confiantes em imagens de
+  rua, praticamente todas estavam certas. Use como modelo extra, filtrado pelo
+  perfil de mobilidade:
+
+  ```
+  AVS_VISION__EXTRA_MODEL_PATHS=["yolo26s-objv1-150.pt"]
+  ```
+
+  Custo: em CPU, `yolo26s` + extra ≈ 143 ms por quadro (~7 /s).
+- **Open Images** — o único com porta e escada prontas, mas fraco: em 404 fotos
+  de interiores, 23–33% de AP50 em portas, abaixo de um modelo treinado 50 min em
+  CPU (42%). Degrau e escada exigem treino (`docs/testes.md`, seção 2.3).
 
 ### Se o detector errar ou deixar de ver
 
@@ -289,6 +327,8 @@ Acrescente `device` quando o alto-falante do protótipo estiver montado.
 |---|---|---|
 | `AVS_STORAGE__LOG_EVENTS` | `true` | grava `var/events.jsonl` |
 | `AVS_STORAGE__SAVE_ANNOTATED_FRAMES` | `false` | salva quadros anotados em `var/snapshots/` |
+| `AVS_STORAGE__SAVE_RAW_FRAMES` | `false` | salva o JPEG cru da placa, sem caixas, em `var/raw/` — material para anotar e medir precisão e revocação no ambiente real |
+| `AVS_STORAGE__RAW_FRAMES_INTERVAL_MS` | `1000` | no máximo um quadro cru a cada intervalo (1 por segundo = 600 imagens em 10 min) |
 
 Ligue `SAVE_ANNOTATED_FRAMES` para gerar as figuras do trabalho; desligue depois
 — a escrita contínua enche o disco rápido.

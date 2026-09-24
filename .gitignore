@@ -13,6 +13,9 @@ models/*.pt
 models/*.onnx
 datasets/**/images/
 datasets/**/labels/
+datasets/cache/
+# quadros da ESP: tem rostos de terceiros (LGPD)
+datasets/esp_pre/
 runs/
 
 # Artefatos de execucao

@@ -26,6 +26,7 @@ def settings(tmp_path) -> Settings:
         storage={
             "var_dir": tmp_path,
             "snapshots_dir": tmp_path / "snapshots",
+            "raw_dir": tmp_path / "raw",
             "event_log_path": tmp_path / "events.jsonl",
             "log_events": False,
         },

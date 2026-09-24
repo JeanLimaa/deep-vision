@@ -183,6 +183,26 @@ async def test_device_token_is_enforced_when_configured(settings, jpeg_frame):
             assert authorized.status_code == 200
 
 
+async def test_raw_frames_are_saved_for_annotation(settings, jpeg_frame):
+    settings.storage.save_raw_frames = True
+    settings.storage.raw_frames_interval_ms = 0
+    app = create_app(settings)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as http_client:
+        async with app.router.lifespan_context(app):
+            for sequence in range(3):
+                await http_client.post(
+                    "/api/v1/ingest/frame",
+                    content=jpeg_frame,
+                    headers={"X-Device-Id": "cam-01", "X-Frame-Seq": str(sequence)},
+                )
+    saved = sorted(settings.storage.raw_dir.glob("cam-01-*.jpg"))
+    assert len(saved) == 3
+    # Exatamente o que a placa enviou: nada desenhado, pronto para anotar.
+    assert saved[0].read_bytes() == jpeg_frame
+
+
 # --------------------------------------------------------------- WebSocket
 
 

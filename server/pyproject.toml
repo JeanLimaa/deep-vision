@@ -59,6 +59,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# O notebook do Colab e feito de comandos de shell (!python ...) que nao cabem
+# em 100 colunas; o codigo que ele chama (training/*.py) e checado normalmente.
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

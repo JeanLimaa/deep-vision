@@ -82,6 +82,8 @@ class DeviceSession:
         self.last_tracks: list[TrackedObject] = []
         self.last_annotated_jpeg: bytes | None = None
         self.last_raw_jpeg: bytes | None = None
+        # Instante do ultimo quadro cru gravado (storage.save_raw_frames).
+        self.last_raw_saved_ms: Milliseconds = -(10**9)
         self.frame_event = asyncio.Event()
 
         # Canal de saida. Em WebSocket o transporte esta presente; em HTTP as

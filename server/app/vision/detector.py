@@ -50,6 +50,14 @@ def allowed_class_ids(names: dict[int, str], allowed: list[str]) -> list[int] | 
             len(names),
         )
         return None
+    dropped = sorted(name for name in names.values() if name not in wanted)
+    # Num modelo proprio (poucas classes), uma classe fora do perfil sumiria
+    # sem aviso -- ex.: "degrau" treinado com nome em portugues.
+    if dropped and len(names) <= 30:
+        log.warning(
+            "Classes do modelo fora de vision.allowed_labels, ignoradas: %s", ", ".join(dropped)
+        )
+    log.info("Filtro de classes: %d de %d classes do modelo ativas", len(ids), len(names))
     return ids
 
 
