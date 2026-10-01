@@ -103,6 +103,9 @@ COCO_PT: dict[str, tuple[str, str]] = {
     "window": ("janela", "uma"),
     "wardrobe": ("guarda-roupa", "um"),
     "lamp": ("luminaria", "uma"),
+    # Acessibilidade (Image Dataset of Accessibility Barriers: grab_bar, ramp).
+    "handrail": ("corrimao", "um"),
+    "ramp": ("rampa", "uma"),
     # Classes do Objects365 (yolo26*-objv1-150.pt, usado como modelo extra) que o
     # COCO nao tem. "ladder" e escada de mao: chamar de "escada" faria o usuario
     # esperar degraus.
@@ -209,12 +212,14 @@ MOBILITY_LABELS: frozenset[str] = frozenset(
         # objetos pessoais procurados por comando de voz
         "cell phone", "laptop", "keyboard", "mouse", "remote", "book", "clock",
         "bottle", "cup", "vase",
-        # classes proprias previstas para o modelo refinado (training/)
+        # classes proprias do modelo refinado (training/)
         "step", "stairs", "pothole", "pole", "curb", "tactile paving", "door", "crosswalk",
-        # guarda-roupa sim, janela e luminaria nao: aparecem em quase todo comodo e
-        # nao mudam o caminho de ninguem (com o Objects365, "luminaria" saia em
-        # toda sala). Quem quiser, acrescenta em AVS_VISION__ALLOWED_LABELS.
-        "wardrobe",
+        "handrail", "ramp", "wardrobe",
+        # Janela e luminaria orientam dentro de um comodo e estao no vocabulario do
+        # modelo refinado, que as aprendeu com rotulos humanos. Com o Objects365
+        # como modelo extra, "luminaria" saia em toda sala (inclusive lustres): se
+        # incomodar, tire-as em AVS_VISION__ALLOWED_LABELS.
+        "window", "lamp",
         # obstaculos que so o Objects365 conhece (modelo extra yolo26*-objv1-150.pt)
         "traffic cone", "traffic sign", "trash can", "stool",
         "wheelchair", "stroller", "crosswalk sign", "barrel/bucket", "fire extinguisher",
@@ -235,6 +240,7 @@ HAZARD_LABELS: frozenset[str] = frozenset(
         "pothole",
         "step",
         "stairs",
+        "ramp",
         "pole",
         "curb",
         "traffic cone",

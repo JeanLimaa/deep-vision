@@ -74,9 +74,9 @@ def test_esp_labels_are_read_by_class_name(tmp_path):
     # A equipe pode reordenar as classes no CVAT: o que vale e o nome.
     image = _frame(tmp_path / "obj_train_data", 1_790_190_000_000, 1)
     image.with_suffix(".txt").write_text("1 0.5 0.5 0.2 0.2\n")
-    (tmp_path / "obj.names").write_text("chair\nstreet lights\n")
+    (tmp_path / "obj.names").write_text("chair\ntrash bin/can\n")
     sample = build_dataset.source_esp(tmp_path, 0.25, 10)[0]
-    assert [row[0] for row in sample.labels] == ["pole"]  # nome canonico do projeto
+    assert [row[0] for row in sample.labels] == ["trash can"]  # nome canonico do projeto
 
 
 def test_degraded_image_keeps_its_size():
@@ -88,6 +88,38 @@ def test_degraded_image_keeps_its_size():
         degraded, kind = build_dataset.degrade(image, rng)
         assert degraded.shape == image.shape and degraded.dtype == np.uint8
         assert kind in {"escuro", "borrao", "jpeg", "baixa_res", "cor"}
+
+
+def test_barriers_xml_brings_handrails_ramps_and_steps(tmp_path):
+    import zipfile
+
+    xml = """<annotations><image name="images/000001.jpg" width="64" height="48">
+      <box label="step" xtl="0" ytl="0" xbr="10" ybr="10">
+        <attribute name="height">less than 3cm</attribute></box>
+      <box label="step" xtl="0" ytl="0" xbr="20" ybr="20">
+        <attribute name="height">more than 7cm</attribute>
+        <attribute name="type">curb</attribute></box>
+      <box label="grab_bar" xtl="10" ytl="10" xbr="30" ybr="20"/>
+      <box label="ramp" xtl="5" ytl="5" xbr="40" ybr="40"/>
+      <box label="stair" xtl="0" ytl="0" xbr="64" ybr="48"/>
+    </image></annotations>"""
+    ok, jpg = cv2.imencode(".jpg", np.full((48, 64, 3), 128, np.uint8))
+    archive = tmp_path / "barriers.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("wm_annotations.xml", xml)
+        bundle.writestr("images/000001.jpg", jpg.tobytes())
+    sample = build_dataset.source_barriers(tmp_path, 10, 0, archive)[0]
+    # Soleira de menos de 3 cm vira fundo; meio-fio entra como degrau.
+    assert sorted(row[0] for row in sample.labels) == ["handrail", "ramp", "stairs", "step"]
+    assert {"handrail", "ramp", "stairs", "step"} <= sample.complete
+
+
+def test_vocabulary_is_indoor_only():
+    street = {"car", "bus", "truck", "bicycle", "motorcycle", "traffic light", "stop sign",
+              "fire hydrant", "curb", "crosswalk", "pole", "traffic cone", "traffic sign"}
+    assert not street & set(build_dataset.VOCAB)
+    assert len(build_dataset.VOCAB) == len(set(build_dataset.VOCAB))
+    assert set(build_dataset.COCO_CLASSES) <= set(build_dataset.COCO80)
 
 
 def test_vocabulary_is_spoken_in_portuguese():

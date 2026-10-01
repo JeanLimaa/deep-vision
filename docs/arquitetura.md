@@ -196,13 +196,22 @@ modelo nunca viu. Duas decisões tratam do vocabulário:
   `yolo26s`), porque boa parte delas é troca entre classes parecidas que não
   interessam (vaca → ovelha). Um anúncio absurdo custa mais confiança no
   dispositivo do que um objeto não anunciado.
-- **Modelos extras em vez de re-treinar o principal**
-  (`AVS_VISION__EXTRA_MODEL_PATHS`). Re-treinar o YOLO só com as classes novas
-  troca a cabeça de 80 saídas por uma de 8: o modelo passa a achar degraus e
-  **esquece pessoas e carros** (esquecimento catastrófico). O modelo das classes
-  novas roda ao lado do COCO e só acrescenta o que ele não tem. Um modelo único
-  exigiria rotular, nas imagens novas, também todas as pessoas, carros e cadeiras
-  que aparecem nelas — do contrário a rede aprende que pessoa é fundo.
+- **Um modelo único, treinado sem esquecer** (`training/build_dataset.py`).
+  Re-treinar o YOLO só com as classes novas troca a cabeça de 80 saídas por uma
+  de 8: o modelo passa a achar degraus e **esquece pessoas e cadeiras**
+  (esquecimento catastrófico). O dataset de treino por isso junta as classes
+  novas a uma amostra do próprio COCO (a "revisão": ~250 imagens ou mais por
+  classe) e completa, com pseudo-rótulos de modelos professores, o que cada base
+  não rotulou — sem isso a rede aprende que a pessoa numa foto de escada é fundo.
+  O vocabulário é o do recorte do TCC, **ambientes internos**: 29 classes do
+  COCO (obstáculos, como cama, pia e geladeira, e objetos procurados, como
+  celular e controle remoto) e 9 novas (escada, degrau, porta, lixeira,
+  corrimão, rampa, guarda-roupa, luminária e janela). Rua (meio-fio, poste,
+  faixa) fica para um trabalho futuro.
+- **Modelos extras** (`AVS_VISION__EXTRA_MODEL_PATHS`) continuam disponíveis
+  para testar classes sem treinar: o extra roda ao lado do principal e só
+  acrescenta as classes que ele não tem, ao custo de uma segunda inferência por
+  quadro.
 
 ## 10. Limitações conhecidas
 

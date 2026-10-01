@@ -216,6 +216,9 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", choices=list(VARIANTS), help="variantes a rodar")
     parser.add_argument("--all-classes", action="store_true", help="desliga o perfil de mobilidade")
     parser.add_argument("--names", type=Path, help="data.yaml com os nomes; padrao = do modelo")
+    parser.add_argument("--same-classes", action="store_true",
+                        help="restringe o detector as classes do --names: compara modelos de "
+                             "vocabularios diferentes nas mesmas classes")
     parser.add_argument("--extra", nargs="*", default=[],
                         help="modelos extras, como no servidor (ex.: yolo26l-objv1-150.pt)")
     parser.add_argument("--split", help="so images/<split> (ex.: test, o teste da ESP)")
@@ -227,17 +230,7 @@ def main() -> None:
 
     from app.vision.yolo_detector import create_yolo_detector
 
-    overrides = {"backend": "yolo", "model_path": args.weights, "device": args.device,
-                 "extra_model_paths": args.extra}
-    if args.conf is not None:
-        overrides["confidence_threshold"] = args.conf
-    if args.all_classes:
-        overrides["allowed_labels"] = []
-    settings = VisionSettings(**overrides)
-    detector = create_yolo_detector(settings)
-    if not args.names and not hasattr(detector, "class_names"):
-        raise SystemExit("Com --extra, informe --names (o data.yaml do conjunto de teste).")
-
+    names = None
     if args.names:
         import yaml
 
@@ -246,7 +239,24 @@ def main() -> None:
             names = dict(enumerate(spec))
         else:
             names = {int(k): v for k, v in spec.items()}
-    else:
+    elif args.same_classes:
+        raise SystemExit("--same-classes precisa de --names.")
+
+    overrides = {"backend": "yolo", "model_path": args.weights, "device": args.device,
+                 "extra_model_paths": args.extra}
+    if args.conf is not None:
+        overrides["confidence_threshold"] = args.conf
+    if args.all_classes:
+        overrides["allowed_labels"] = []
+    elif args.same_classes:
+        # Sem isso, um modelo COCO e punido por achar objetos reais (vaso, livro, TV)
+        # que o conjunto de teste nao rotula: viram "fantasmas" e derrubam a precisao.
+        overrides["allowed_labels"] = sorted(set(names.values()))
+    settings = VisionSettings(**overrides)
+    detector = create_yolo_detector(settings)
+    if names is None:
+        if not hasattr(detector, "class_names"):
+            raise SystemExit("Com --extra, informe --names (o data.yaml do conjunto de teste).")
         names = detector.class_names
     counted = None if args.all_classes else set(settings.allowed_labels)
 
@@ -258,7 +268,8 @@ def main() -> None:
     if not images:
         raise SystemExit(f"Nenhuma imagem em {folder}")
 
-    profile = "todas" if args.all_classes else "perfil de mobilidade"
+    profile = ("todas" if args.all_classes else
+               "as do --names" if args.same_classes else "perfil de mobilidade")
     print(f"{Path(detector.model_path).name}  conf={settings.confidence_threshold}  "
           f"{len(images)} imagens  classes={profile}")
     print(f"{'variante':10s} {'precisao':>9s} {'revocacao':>9s} {'F1':>6s} | "

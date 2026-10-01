@@ -17,7 +17,7 @@ hardware estão marcados.
 
 ```bash
 cd server
-uv run pytest -q            # 98 testes automatizados
+uv run pytest -q            # 100 testes automatizados
 uv run ruff check app
 ```
 
@@ -73,27 +73,27 @@ uv run python training/analyze_events.py --csv runs/ensaio-01.csv
    uv run python training/build_dataset.py prelabel --images var/raw --out ../datasets/esp_pre
    ```
 
-   Guarda 1 quadro a cada 5 s (vizinhos são quase iguais) e marca as 29 classes
-   com os professores (`yolo26l` + Objects365).
+   Guarda 1 quadro a cada 5 s (vizinhos são quase iguais) e marca as 38 classes
+   de ambiente interno com os professores (`yolo26l` + Objects365).
 3. **Revisão no CVAT** (cvat.ai, projeto privado; a equipe pode dividir as
    tarefas): crie a tarefa com as imagens de `esp_pre/images`, importe
    `cvat_yolo_1.1.zip` como *YOLO 1.1* e corrija — apague o que está errado,
-   ajuste caixas e **desenhe o que falta**, principalmente degrau, meio-fio,
-   escada e porta, que nenhum professor pronto conhece. Ignore objetos com menos
-   de ~15 pixels. Exporte como *YOLO 1.1* **com as imagens** e salve no Drive
-   como `deep-vision/esp_revisado.zip`.
-4. **Treino no Colab**: abra `server/training/colab_treino.ipynb` no Colab e rode
-   as células em ordem. São duas rodadas, e o notebook descobre sozinho em qual
-   está: **sem** `esp_revisado.zip` no Drive, treina só com os dados públicos
-   (`assistivo-publico.pt`, que já detecta escada, degrau, meio-fio, porta e
-   faixa — dá para rodar antes mesmo do ensaio); **com** o zip, faz o ajuste
-   fino a partir da rodada 1 (`assistivo-final.pt`). O professor das classes
-   novas e o dataset montado ficam no Drive e não são refeitos.
-5. **Resultado**: a célula 7 compara as três configurações — COCO, COCO +
-   Objects365 e o modelo ajustado — **no mesmo teste da ESP**, com precisão,
-   revocação, tipos de erro e mAP por classe. É a tabela de antes e depois do
-   capítulo de resultados.
-6. **No servidor**: `AVS_VISION__MODEL_PATH=assistivo-final.pt`, sem modelos extras.
+   ajuste caixas e **desenhe o que falta**, principalmente degrau, escada,
+   porta, corrimão e rampa, que nenhum professor pronto conhece. Ignore objetos
+   com menos de ~15 pixels. Exporte como *YOLO 1.1* **com as imagens**
+   (`esp_revisado.zip`).
+4. **Treino no Kaggle** (recomendado): importe `server/training/kaggle_treino.ipynb`,
+   ligue *GPU T4 x2* e *Internet*, anexe o `esp_revisado.zip` como dataset
+   privado (opcional) e use *Save & Run All*: roda sozinho, com o navegador
+   fechado, em ~5 a 6 h, e deixa `assistivo-interno.pt` na aba *Output*. As
+   instruções estão na primeira célula. **Envie o código ao GitHub antes**: o
+   notebook clona o repositório. A alternativa é `colab_treino.ipynb` no Colab,
+   que precisa da aba aberta e cai no limite de uso da GPU gratuita.
+5. **Resultado**: a avaliação compara o modelo pré-treinado (`yolo26l`, COCO) e o
+   ajustado **nas mesmas classes** (`pipeline_ablation.py --same-classes`) e no
+   mesmo conjunto — o teste da ESP, quando há imagens dela —, com precisão,
+   revocação, tipos de erro, pouca luz, borrão e mAP por classe.
+6. **No servidor**: `AVS_VISION__MODEL_PATH=assistivo-interno.pt`, sem modelos extras.
 
 Rostos de terceiros nas imagens: mantenha o projeto do CVAT e o Drive
 privados e não publique o dataset sem consentimento (LGPD).

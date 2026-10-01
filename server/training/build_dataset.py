@@ -5,7 +5,7 @@ Dois comandos:
     # depois de um ensaio: pre-rotula os quadros crus para a equipe so corrigir
     python training/build_dataset.py prelabel --images var/raw --out ../datasets/esp_pre
 
-    # no Colab (training/colab_treino.ipynb): junta todas as fontes
+    # no Kaggle (training/kaggle_treino.ipynb) ou no Colab: junta todas as fontes
     python training/build_dataset.py build --stage professor --out /content/professor
     python training/build_dataset.py build --esp /content/esp --out /content/assistivo \\
         --teachers yolo26l.pt yolo26l-objv1-150.pt /content/professor.pt
@@ -23,7 +23,7 @@ porta e fundo. Por isso cada imagem recebe rotulos automaticos ("pseudo-
 rotulos") dos professores para as classes que a fonte nao rotulou por completo:
 
     1o professor (yolo26l.pt, COCO)       -> classes do COCO
-    demais (Objects365, professor novo)   -> classes novas (poste, lixeira, porta...)
+    demais (Objects365, professor novo)   -> classes novas (escada, porta, corrimao...)
 
 Rotulo humano sempre fica; o professor so acrescenta objetos de classes que a
 fonte nao cobre por completo, e nunca em cima de um rotulo humano da mesma
@@ -59,18 +59,25 @@ from app.vision.labels import canonical_label  # noqa: E402
 
 # --------------------------------------------------------------- vocabulario
 
-# Classes do modelo final. Nomes do COCO onde o COCO ja tem a classe: o modelo
-# refinado substitui o principal sem mudar a narracao (ver app/vision/labels.py).
+# Classes do modelo final, todas de ambientes internos (o recorte do TCC). Nomes
+# do COCO onde o COCO ja tem a classe: o modelo refinado substitui o principal
+# sem mudar a narracao (ver app/vision/labels.py).
+#
+# Cada classe do COCO aqui precisa de exemplos no treino -- sem eles o ajuste
+# fino a esquece --, e e por isso que o subconjunto do COCO cresce com a lista.
 COCO_CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "bus", "truck", "dog",
-    "chair", "couch", "dining table", "bench", "potted plant", "fire hydrant",
-    "traffic light", "stop sign",
-    "backpack", "suitcase", "cell phone", "bottle", "cup",
+    # obstaculos: onde se esbarra ou tropeca
+    "person", "chair", "couch", "bed", "dining table", "bench", "toilet", "sink",
+    "refrigerator", "oven", "potted plant", "tv", "cat", "dog",
+    "backpack", "handbag", "suitcase",
+    # objetos procurados pelo usuario ("o que tem a minha frente?")
+    "cell phone", "bottle", "cup", "laptop", "umbrella", "microwave", "remote", "book",
+    "clock", "keyboard", "mouse", "vase",
 ]
-# O que nenhum modelo pronto faz bem e que importa para quem caminha.
+# O que o COCO nao tem. Rua (meio-fio, poste, faixa, cone, placa) ficou de fora
+# com o recorte; os datasets de rua continuam no codigo para um trabalho futuro.
 NEW_CLASSES = [
-    "stairs", "step", "curb", "door", "crosswalk",
-    "pole", "trash can", "traffic cone", "traffic sign",
+    "stairs", "step", "door", "trash can", "handrail", "ramp", "wardrobe", "lamp", "window",
 ]
 VOCAB = COCO_CLASSES + NEW_CLASSES
 
@@ -100,13 +107,14 @@ URLS = {
 LICENSES = [
     ("COCO train2017 (cocodataset.org)", "classes do COCO",
      "CC BY 4.0 (anotacoes); imagens do Flickr, termos do COCO"),
-    ("Image Dataset of Accessibility Barriers (Zenodo 6382090)", "degrau, meio-fio, escada",
-     "CC BY 4.0"),
-    ("HomeObjects-3K (Ultralytics)", "porta, cadeira, sofa, mesa, vaso de planta", "AGPL-3.0"),
+    ("Image Dataset of Accessibility Barriers (Zenodo 6382090)",
+     "degrau, escada, corrimao, rampa", "CC BY 4.0"),
+    ("HomeObjects-3K (Ultralytics)",
+     "porta, guarda-roupa, luminaria, janela, cama, TV, notebook, sofa, cadeira, mesa, vaso de "
+     "planta", "AGPL-3.0"),
     ("DoorDetect (github.com/MiguelARD/DoorDetect-Dataset)", "porta",
      "**sem licenca declarada**: uso academico com citacao; confirme com o orientador"),
-    ("ROD (huggingface.co/datasets/ty-li/Obstacle-Detection-Dataset-YOLO)",
-     "poste, lixeira, cone, placa, faixa, escada",
+    ("ROD (huggingface.co/datasets/ty-li/Obstacle-Detection-Dataset-YOLO)", "lixeira, escada",
      "MIT; as fontes do Roboflow mantem as proprias licencas"),
     ("Imagens da ESP32-CAM do projeto", "todas as classes, rotuladas pela equipe",
      "da equipe; rostos de terceiros exigem cuidado com a LGPD"),
@@ -246,13 +254,20 @@ def source_coco(cache: Path, limit: int, seed: int, per_class: int = 250) -> lis
     ]
 
 
+# Rotulos do XML (wm_annotations.xml: step 3564, stair 1492, grab_bar 922, ramp 143).
+# "step" tem tratamento proprio (altura minima).
+BARRIER_LABELS = {"stair": "stairs", "grab_bar": "handrail", "ramp": "ramp"}
+
+
 def source_barriers(
     cache: Path, limit: int, seed: int, archive: Path | None = None
 ) -> list[Sample]:
-    """Degraus (soleira/outros), meios-fios e escadas, a partir do XML do CVAT.
+    """Degraus, escadas, corrimaos e rampas, a partir do XML do CVAT.
 
     Degraus com menos de 3 cm ficam de fora de proposito: viram fundo, porque
-    anunciar uma soleira de 2 cm e ruido para quem usa bengala.
+    anunciar uma soleira de 2 cm e ruido para quem usa bengala. Meio-fio e um
+    degrau: sem a classe "curb" no vocabulario, ele entra como "step" -- deixa-lo
+    sem rotulo ensinaria que um desnivel identico ao de um degrau e fundo.
     """
     if archive is None:
         archive = download(URLS["barriers"], cache / "wm_barriers_data.zip", "barreiras (8 GB)")
@@ -269,14 +284,15 @@ def source_barriers(
         labels: list[Label] = []
         for box in image.iter("box"):
             attrs = {a.get("name"): a.text for a in box.iter("attribute")}
-            if box.get("label") == "stair":
-                cls = "stairs"
-            elif box.get("label") == "step":
+            label = box.get("label")
+            if label == "step":
                 if attrs.get("height") == "less than 3cm":
                     continue
-                cls = "curb" if attrs.get("type") == "curb" else "step"
+                cls = "step"
+            elif label in BARRIER_LABELS:
+                cls = BARRIER_LABELS[label]
             else:
-                continue  # rampa e corrimao: fora do vocabulario
+                continue
             x1, y1 = float(box.get("xtl")), float(box.get("ytl"))
             x2, y2 = float(box.get("xbr")), float(box.get("ybr"))
             labels.append((cls, (x1 + x2) / 2 / width, (y1 + y2) / 2 / height,
@@ -294,7 +310,7 @@ def source_barriers(
             return img
 
         samples.append(Sample("barriers", Path(name).stem, load, labels,
-                              frozenset({"step", "curb", "stairs"})))
+                              frozenset({"step", *BARRIER_LABELS.values()})))
     random.Random(seed).shuffle(samples)
     return samples[:limit]
 
@@ -302,7 +318,7 @@ def source_barriers(
 def source_homeobjects(
     cache: Path, limit: int, seed: int, folder: Path | None = None
 ) -> list[Sample]:
-    """Portas e mobiliario de interiores (as outras classes do dataset ficam de fora)."""
+    """Portas e mobiliario de interiores (so "photo frame" fica de fora)."""
     if folder is None:
         archive = download(URLS["homeobjects"], cache / "homeobjects-3K.zip", "HomeObjects")
         folder = cache / "homeobjects"
@@ -310,8 +326,9 @@ def source_homeobjects(
             zipfile.ZipFile(archive).extractall(folder)
     names = ["bed", "sofa", "chair", "table", "lamp", "tv", "laptop", "wardrobe", "window",
              "door", "potted plant", "photo frame"]
-    mapping = {"sofa": "couch", "chair": "chair", "table": "dining table", "door": "door",
-               "potted plant": "potted plant"}
+    mapping = {"bed": "bed", "sofa": "couch", "chair": "chair", "table": "dining table",
+               "lamp": "lamp", "tv": "tv", "laptop": "laptop", "wardrobe": "wardrobe",
+               "window": "window", "door": "door", "potted plant": "potted plant"}
     complete = frozenset(mapping.values())
     samples = []
     for image in list_images(folder / "images"):
@@ -360,6 +377,7 @@ ROD_NAMES = [
     "Truck", "Bus", "Bench", "Traffic Cone", "Fire hydrant", "Teraffic Barrel", "Plant Pot",
     "Electrical Box", "Chair", "Bicycle Rack",
 ]
+# Rotulos do ROD fora do vocabulario (carro, poste...) sao descartados no build.
 ROD_MAP = {
     "Bike": "bicycle", "Car": "car", "Person": "person", "Stairs": "stairs",
     "Traffic sign": "traffic sign", "Electrical Pole": "pole", "Motorcycle": "motorcycle",
@@ -367,12 +385,12 @@ ROD_MAP = {
     "Bus": "bus", "Bench": "bench", "Traffic Cone": "traffic cone",
     "Fire hydrant": "fire hydrant", "Plant Pot": "potted plant", "Chair": "chair",
 }
-ROD_WANTED = {"Stairs", "Electrical Pole", "Dustbin", "Pedestrian crosswalk", "Traffic Cone",
-              "Traffic sign"}
+# So o que interessa a ambientes internos: lixeiras e escadas.
+ROD_WANTED = {"Stairs", "Dustbin"}
 
 
 def source_rod(cache: Path, limit: int, seed: int) -> list[Sample]:
-    """Calcadas: so imagens com poste, lixeira, cone, placa, faixa ou escada.
+    """Calcadas: so imagens com lixeira ou escada (ROD_WANTED).
 
     O ROD junta 26 datasets do Roboflow, cada um rotulado com as proprias
     classes -- nenhuma classe e tratada como completa, os professores
@@ -807,8 +825,9 @@ def main() -> None:
     build.add_argument("--esp", type=Path, help="exportacao YOLO revisada das imagens da ESP")
     build.add_argument("--teachers", nargs="*", default=["yolo26l.pt", "yolo26l-objv1-150.pt"])
     build.add_argument("--cache", type=Path, default=ROOT / "datasets" / "cache")
-    build.add_argument("--coco", type=int, default=6000, help="imagens do COCO")
-    build.add_argument("--rod", type=int, default=5000, help="imagens do ROD")
+    build.add_argument("--coco", type=int, default=8000,
+                       help="imagens do COCO: ~250+ por classe, para o ajuste fino nao esquece-las")
+    build.add_argument("--rod", type=int, default=2000, help="imagens do ROD")
     build.add_argument("--limit", type=int, default=100_000, help="teto por fonte (teste rapido)")
     build.add_argument("--esp-test", type=float, default=0.25,
                        help="fracao das SESSOES da ESP separada para o teste")
