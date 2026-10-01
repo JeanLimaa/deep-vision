@@ -86,7 +86,9 @@ uv run python training/analyze_events.py --csv runs/ensaio-01.csv
 4. **Treino no Kaggle** (recomendado): importe `server/training/kaggle_treino.ipynb`,
    ligue *GPU T4 x2* e *Internet*, anexe o `esp_revisado.zip` como dataset
    privado (opcional) e use *Save & Run All*: roda sozinho, com o navegador
-   fechado, em ~5 a 6 h, e deixa `assistivo-interno.pt` na aba *Output*. As
+   fechado — ~10,5 h com o modelo `l` (padrão; o treino tem teto de 8 h para
+   caber nas 12 h do Kaggle) ou ~5 h com o `s` — e deixa `assistivo-interno.pt`
+   na aba *Output*. As
    instruções estão na primeira célula. **Envie o código ao GitHub antes**: o
    notebook clona o repositório. A alternativa é `colab_treino.ipynb` no Colab,
    que precisa da aba aberta e cai no limite de uso da GPU gratuita.
