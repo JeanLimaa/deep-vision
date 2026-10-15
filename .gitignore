@@ -11,6 +11,7 @@ server/.ruff_cache/
 # Modelos e datasets (pesados)
 models/*.pt
 models/*.onnx
+models/*.rar
 datasets/**/images/
 datasets/**/labels/
 datasets/cache/
