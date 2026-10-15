@@ -123,7 +123,8 @@ def test_vocabulary_is_indoor_only():
 
 
 def test_vocabulary_is_spoken_in_portuguese():
-    from app.vision.labels import COCO_PT, MOBILITY_LABELS
+    from app.vision.labels import COCO_PT, MOBILITY_LABELS, OPT_IN_LABELS
 
     assert set(build_dataset.VOCAB) <= set(COCO_PT)
-    assert set(build_dataset.VOCAB) <= MOBILITY_LABELS
+    # Tudo o que o modelo aprende e anunciado, exceto o que e opcional de proposito.
+    assert set(build_dataset.VOCAB) <= MOBILITY_LABELS | OPT_IN_LABELS

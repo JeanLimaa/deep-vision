@@ -215,17 +215,18 @@ MOBILITY_LABELS: frozenset[str] = frozenset(
         # classes proprias do modelo refinado (training/)
         "step", "stairs", "pothole", "pole", "curb", "tactile paving", "door", "crosswalk",
         "handrail", "ramp", "wardrobe",
-        # Janela e luminaria orientam dentro de um comodo e estao no vocabulario do
-        # modelo refinado, que as aprendeu com rotulos humanos. Com o Objects365
-        # como modelo extra, "luminaria" saia em toda sala (inclusive lustres): se
-        # incomodar, tire-as em AVS_VISION__ALLOWED_LABELS.
-        "window", "lamp",
         # obstaculos que so o Objects365 conhece (modelo extra yolo26*-objv1-150.pt)
         "traffic cone", "traffic sign", "trash can", "stool",
         "wheelchair", "stroller", "crosswalk sign", "barrel/bucket", "fire extinguisher",
         "machinery vehicle", "tricycle", "ladder",
     }
 )
+
+# Classes que o modelo refinado conhece mas que, por padrao, nao sao anunciadas.
+# Nos quadros reais da ESP, "luminaria" saiu nas lampadas fluorescentes do teto e
+# "janela" e a classe com mais falsos positivos; nenhuma das duas muda o caminho
+# de quem anda. Quem quiser, acrescenta em AVS_VISION__ALLOWED_LABELS.
+OPT_IN_LABELS: frozenset[str] = frozenset({"window", "lamp"})
 
 # Classes que representam risco imediato de colisao/queda e por isso furam o
 # cooldown normal de narracao.

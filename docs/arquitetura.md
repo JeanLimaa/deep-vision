@@ -208,10 +208,15 @@ modelo nunca viu. Duas decisões tratam do vocabulário:
   celular e controle remoto) e 9 novas (escada, degrau, porta, lixeira,
   corrimão, rampa, guarda-roupa, luminária e janela). Rua (meio-fio, poste,
   faixa) fica para um trabalho futuro.
-- **Modelos extras** (`AVS_VISION__EXTRA_MODEL_PATHS`) continuam disponíveis
-  para testar classes sem treinar: o extra roda ao lado do principal e só
-  acrescenta as classes que ele não tem, ao custo de uma segunda inferência por
-  quadro.
+- **Modelos extras** (`AVS_VISION__EXTRA_MODEL_PATHS`): o extra roda ao lado do
+  principal e só acrescenta as classes que ele não tem, ao custo de uma segunda
+  inferência por quadro. É a configuração recomendada com o modelo refinado:
+  medido nas fotos do COCO rotuladas por humanos, o refinamento **esquece** parte
+  das classes comuns (revocação do `yolo26l` de 68% para 56%), e com o
+  `yolo26l` original como principal e o refinado como extra as classes do COCO
+  ficam intactas e as novas entram inteiras. Quando o extra e o principal dão
+  nomes diferentes à mesma caixa (IoU ≥ 0,6), fica o mais confiável — a
+  "lixeira" do refinado no lugar do "copo" do COCO, que não conhece lixeira.
 
 ## 10. Limitações conhecidas
 

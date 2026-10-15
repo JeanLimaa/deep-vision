@@ -17,7 +17,7 @@ hardware estão marcados.
 
 ```bash
 cd server
-uv run pytest -q            # 100 testes automatizados
+uv run pytest -q            # 102 testes automatizados
 uv run ruff check app
 ```
 

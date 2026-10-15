@@ -179,6 +179,29 @@ def test_extra_model_only_adds_classes_the_main_model_lacks():
     assert composite.model_path == "yolo26s.pt + urbano.pt"
 
 
+def test_extra_model_renames_an_object_the_main_model_got_wrong():
+    # O COCO nao conhece lixeira e a chama de copo; o modelo extra acerta.
+    cup = Detection("cup", 0.4, box(100, 100, 200, 220))
+    trash_can = Detection("trash can", 0.7, box(102, 98, 204, 222))
+    composite = CompositeDetector(
+        _StubDetector({"cup", "person"}, [cup], "yolo26l.pt"),
+        [_StubDetector({"trash can"}, [trash_can], "refinado.pt")],
+    )
+    labels = [d.label for d in composite.detect(np.zeros((300, 300, 3), np.uint8))]
+    assert labels == ["trash can"]
+
+
+def test_confident_main_detection_is_not_replaced_by_the_extra():
+    # Pessoa parada no vao da porta: a mesma regiao, e a pessoa importa mais.
+    person = Detection("person", 0.9, box(100, 50, 200, 300))
+    door = Detection("door", 0.5, box(95, 40, 205, 310))
+    composite = CompositeDetector(
+        _StubDetector({"person"}, [person], "yolo26l.pt"),
+        [_StubDetector({"door"}, [door], "refinado.pt")],
+    )
+    assert [d.label for d in composite.detect(np.zeros((320, 320, 3), np.uint8))] == ["person"]
+
+
 def test_every_mobility_label_is_spoken_in_portuguese():
     # Sem traducao, a narracao falaria "a street lights, a frente".
     missing = [label for label in MOBILITY_LABELS if label not in COCO_PT]

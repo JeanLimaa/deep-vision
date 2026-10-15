@@ -104,9 +104,29 @@ class CompositeDetector:
     def detect(self, image: np.ndarray) -> list[Detection]:
         detections = self._main.detect(image)
         for extra, labels in zip(self._extras, self._extra_labels, strict=True):
-            if labels:
-                detections.extend(d for d in extra.detect(image) if d.label in labels)
+            if not labels:
+                continue
+            for found in (d for d in extra.detect(image) if d.label in labels):
+                detections = _merge(detections, found)
         return detections
+
+
+# Caixas de classes diferentes que se sobrepoem tanto sao o mesmo objeto com dois
+# nomes: o COCO nao conhece lixeira e a chama de "copo"; o modelo extra diz
+# "lixeira". Sem isso a narracao anunciaria os dois. Mesmo limiar do rastreador.
+DUPLICATE_IOU = 0.6
+
+
+def _merge(detections: list[Detection], found: Detection) -> list[Detection]:
+    """Acrescenta ``found``, a menos que outro nome para o mesmo objeto seja mais confiavel.
+
+    Fica o nome mais confiavel: a lixeira (0,7) vence o "copo" (0,4), mas uma
+    pessoa (0,9) parada no vao de uma porta (0,5) continua sendo anunciada.
+    """
+    twins = [d for d in detections if d.box.iou(found.box) >= DUPLICATE_IOU]
+    if any(twin.confidence >= found.confidence for twin in twins):
+        return detections
+    return [d for d in detections if all(d is not twin for twin in twins)] + [found]
 
 
 class DetectorUnavailableError(RuntimeError):

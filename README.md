@@ -89,7 +89,7 @@ uv run pytest
 uv run ruff check app
 ```
 
-100 testes, sem hardware e sem modelo baixado.
+102 testes, sem hardware e sem modelo baixado.
 
 ## Aceleração por GPU (opcional)
 
