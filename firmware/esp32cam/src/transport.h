@@ -42,7 +42,8 @@ class Transport {
 
   virtual bool sendFrame(const uint8_t* jpeg, size_t length, uint32_t sequence) = 0;
   virtual bool sendTelemetry(float distanceCm, Zone zone, uint8_t volumeStep) = 0;
-  virtual bool sendButton(const char* button, bool longPress) = 0;
+  /// ``action``: "press", "long_press", ou "on"/"off" para estados explicitos (mute).
+  virtual bool sendButton(const char* button, const char* action) = 0;
   virtual bool sendCommand(const char* text) = 0;
   virtual bool sendAudio(const uint8_t* pcm, size_t length) = 0;
 

@@ -125,14 +125,14 @@ class WebSocketTransport : public Transport {
     return _client.sendTXT(payload);
   }
 
-  bool sendButton(const char* button, bool longPress) override {
+  bool sendButton(const char* button, const char* action) override {
     if (!_connected) {
       return false;
     }
     JsonDocument doc;
     doc["type"] = "button";
     doc["button"] = button;
-    doc["action"] = longPress ? "long_press" : "press";
+    doc["action"] = action;
     String out;
     serializeJson(doc, out);
     return _client.sendTXT(out);
@@ -255,11 +255,11 @@ class HttpTransport : public Transport {
     return postJson(HTTP_TELEMETRY_PATH, telemetryJson(distanceCm, zone, volumeStep, true));
   }
 
-  bool sendButton(const char* button, bool longPress) override {
+  bool sendButton(const char* button, const char* action) override {
     JsonDocument doc;
     doc["device_id"] = DEVICE_ID;
     doc["button"] = button;
-    doc["action"] = longPress ? "long_press" : "press";
+    doc["action"] = action;
     String out;
     serializeJson(doc, out);
     return postJson(HTTP_BUTTON_PATH, out);

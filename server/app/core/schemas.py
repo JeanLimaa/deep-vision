@@ -27,8 +27,9 @@ class TelemetryIn(BaseModel):
 
 class ButtonEventIn(BaseModel):
     device_id: str
-    button: Literal["power", "start_stop", "volume_up", "volume_down"]
-    action: Literal["press", "long_press", "release"] = "press"
+    # "mute" e o mute total da placa (toque duplo): vem com action "on"/"off".
+    button: Literal["power", "start_stop", "volume_up", "volume_down", "mute"]
+    action: Literal["press", "long_press", "release", "on", "off"] = "press"
 
 
 class TextCommandIn(BaseModel):

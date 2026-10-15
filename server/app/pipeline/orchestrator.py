@@ -269,6 +269,20 @@ class AssistivePipeline:
             step = self._audio.adjust_volume(-1)
             message = f"volume:{step}"
             self._announce_volume(step)
+        elif button == "mute":
+            # Mute total escolhido na placa: silencio completo, sem nem o
+            # "assistente pausado". Estado explicito (on/off) e nao alternancia,
+            # para placa e servidor nao se desencontrarem se uma mensagem se perder.
+            muted = action != "off"
+            session.set_active(not muted)
+            self._audio.clear()
+            message = "muted" if muted else "unmuted"
+            if not muted:
+                from app.narration.phrases import SYSTEM
+
+                self._audio.submit(
+                    Utterance(text=SYSTEM["started"], priority=Priority.ANSWER, interrupt=True)
+                )
         elif button == "power" and action in ("long_press", "press"):
             session.set_active(False)
             session.reset()

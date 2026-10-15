@@ -327,7 +327,7 @@ Acrescente `device` quando o alto-falante do protótipo estiver montado.
 |---|---|---|
 | `AVS_STORAGE__LOG_EVENTS` | `true` | grava `var/events.jsonl` |
 | `AVS_STORAGE__SAVE_ANNOTATED_FRAMES` | `false` | salva quadros anotados em `var/snapshots/` |
-| `AVS_STORAGE__SAVE_RAW_FRAMES` | `false` | salva o JPEG cru da placa, sem caixas, em `var/raw/` — material para anotar e medir precisão e revocação no ambiente real |
+| `AVS_STORAGE__SAVE_ANNOTATED_FRAMES` | `false` | salva o JPEG cru da placa, sem caixas, em `var/raw/` — material para anotar e medir precisão e revocação no ambiente real |
 | `AVS_STORAGE__RAW_FRAMES_INTERVAL_MS` | `1000` | no máximo um quadro cru a cada intervalo (1 por segundo = 600 imagens em 10 min) |
 
 Ligue `SAVE_ANNOTATED_FRAMES` para gerar as figuras do trabalho; desligue depois

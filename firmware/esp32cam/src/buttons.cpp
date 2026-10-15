@@ -78,6 +78,9 @@ bool ButtonPanel::poll(ButtonEvent& event) {
   for (uint8_t i = 0; i < static_cast<uint8_t>(Button::Count); ++i) {
     State& state = _states[i];
     const bool pressed = readRaw(i);
+    // So o start/stop conta toques: ele e o botao unico da ESP32-CAM e acumula
+    // funcoes. Nos demais, esperar a janela so atrasaria a resposta.
+    const bool countsTaps = static_cast<Button>(i) == Button::StartStop;
 
     if (pressed != state.pressed) {
       if (nowMs - state.changedAtMs < BUTTON_DEBOUNCE_MS) {
@@ -88,8 +91,14 @@ bool ButtonPanel::poll(ButtonEvent& event) {
 
       // O evento sai na soltura, exceto quando o toque longo ja foi emitido.
       if (!pressed && !state.longFired) {
-        event = {static_cast<Button>(i), false};
-        return true;
+        if (countsTaps) {
+          // Ainda nao: o proximo toque pode chegar dentro da janela.
+          ++state.taps;
+          state.releasedAtMs = nowMs;
+        } else {
+          event = {static_cast<Button>(i), false};
+          return true;
+        }
       }
       if (!pressed) {
         state.longFired = false;
@@ -98,8 +107,15 @@ bool ButtonPanel::poll(ButtonEvent& event) {
       continue;
     }
 
+    if (state.taps > 0 && !pressed && nowMs - state.releasedAtMs >= BUTTON_MULTI_TAP_MS) {
+      event = {static_cast<Button>(i), false, false, state.taps};
+      state.taps = 0;
+      return true;
+    }
+
     if (pressed && !state.longFired && nowMs - state.changedAtMs >= BUTTON_LONG_PRESS_MS) {
       state.longFired = true;
+      state.taps = 0;  // toque seguido de segurar vale como toque longo
       event = {static_cast<Button>(i), true};
       return true;
     }

@@ -44,9 +44,18 @@ bool g_transportStarted = false;
 constexpr uint16_t kToneOnline[] = {1800, 2600};
 constexpr uint16_t kToneOffline[] = {2600, 1800};
 constexpr uint16_t kToneReset[] = {2600, 1800, 1200};
+// Entrada e saida do mute: diferentes de todo o resto, para o usuario nunca
+// ficar em duvida se a placa esta muda.
+constexpr uint16_t kToneMuteOn[] = {700};
+constexpr uint16_t kToneMuteOff[] = {1200, 1800, 2600};
 
-/// Estado operacional do dispositivo (o botao start/stop alterna ``streaming``).
+/// Pedido enviado no toque simples; o servidor o trata como um comando de voz.
+constexpr const char* kDescribeCommand = "o que tem na frente";
+
+/// Estado operacional do dispositivo (o toque longo alterna ``streaming``).
 bool g_streaming = true;
+/// Mute total (toque duplo). Nao e salvo: a placa sempre liga com som.
+bool g_muted = false;
 uint32_t g_frameSequence = 0;
 uint32_t g_lastFrameMs = 0;
 uint32_t g_lastTelemetryMs = 0;
@@ -84,29 +93,84 @@ void handleServerAction(const ServerAction& action) {
   }
 }
 
+/// Mute total: sem voz e sem bipe nenhum, inclusive o de obstaculo. A camera
+/// para junto (economiza bateria) e o servidor deixa de narrar. Sair do mute
+/// devolve tudo ao normal.
+void setMuted(bool muted) {
+  if (muted) {
+    g_buzzer.playBlocking(kToneMuteOn, 1, 500, 0);
+    g_buzzer.setMuted(true);
+    g_speaker.stop();
+    g_streaming = false;
+  } else {
+    g_buzzer.setMuted(false);
+    g_streaming = true;
+    g_buzzer.playBlocking(kToneMuteOff, 3);
+  }
+  g_muted = muted;
+  Serial.printf("[mute] %s\n", muted ? "ligado" : "desligado");
+  // Estado explicito (on/off), e nao alternancia: se uma mensagem se perder, a
+  // proxima corrige em vez de inverter placa e servidor.
+  if (serverLinkUp()) {
+    g_transport->sendButton("mute", muted ? "on" : "off");
+  }
+}
+
+/// Botao unico da ESP32-CAM, que sem microfone acumula as funcoes:
+///   1 toque  -> "o que tem na frente?" (resposta falada pelo servidor)
+///   2 toques -> mute total, liga e desliga
+///   longo    -> pausa/retoma a voz; os bipes de obstaculo continuam
+/// Com microfone, o toque simples grava um comando de voz no lugar da descricao.
+void handleStartStop(const ButtonEvent& event) {
+  if (event.taps >= 2) {
+    setMuted(!g_muted);
+    return;
+  }
+  if (g_muted) {
+    return;  // mudo de verdade: so o toque duplo tira daqui
+  }
+
+  if (event.longPress) {
+    g_streaming = !g_streaming;
+    g_buzzer.chirp(g_streaming ? 2400 : 1400, 120);
+    if (serverLinkUp()) {
+      g_transport->sendButton("start_stop", "long_press");
+    }
+    return;
+  }
+
+  if (g_microphone.available()) {
+    g_microphone.startCapture();
+    g_buzzer.chirp(2400, 80);
+    return;
+  }
+  if (!serverLinkUp()) {
+    // Sem servidor nao vira resposta falada; o bipe grave avisa, para o usuario
+    // nao ficar esperando.
+    g_buzzer.chirp(600, 300);
+    return;
+  }
+  g_transport->sendCommand(kDescribeCommand);
+  g_buzzer.chirp(2000, 50);
+}
+
 void handleButton(const ButtonEvent& event) {
   if (event.veryLongPress) {
     if (event.button == Button::StartStop) {
+      g_buzzer.setMuted(false);  // o aviso do reset precisa ser ouvido
       g_buzzer.playBlocking(kToneReset, 3, 180, 80);
       g_wifi.forgetAndRestart();
     }
     return;
   }
 
-  Serial.printf("[botao] %s%s\n", buttonName(event.button), event.longPress ? " (longo)" : "");
+  Serial.printf("[botao] %s%s x%u\n", buttonName(event.button), event.longPress ? " (longo)" : "",
+                event.taps);
 
   switch (event.button) {
     case Button::StartStop:
-      if (g_microphone.available() && !event.longPress) {
-        // Com microfone presente, o toque curto grava um comando de voz; o
-        // toque longo continua alternando a transmissao.
-        g_microphone.startCapture();
-        g_buzzer.chirp(2400, 80);
-        return;
-      }
-      g_streaming = !g_streaming;
-      g_buzzer.chirp(g_streaming ? 2400 : 1400, 120);
-      break;
+      handleStartStop(event);
+      return;  // ja avisou o servidor do jeito certo para cada gesto
 
     case Button::VolumeUp:
     case Button::VolumeDown: {
@@ -133,7 +197,7 @@ void handleButton(const ButtonEvent& event) {
   }
 
   if (serverLinkUp()) {
-    g_transport->sendButton(buttonName(event.button), event.longPress);
+    g_transport->sendButton(buttonName(event.button), event.longPress ? "long_press" : "press");
   }
 }
 
@@ -253,6 +317,15 @@ void pumpServer() {
   if (!g_transportStarted) {
     return;
   }
+
+  // O servidor comeca cada conexao narrando. Se a placa estava muda quando o
+  // enlace caiu, avisa de novo -- senao a voz voltaria sozinha no celular.
+  static bool wasLinked = false;
+  const bool linked = g_transport->connected();
+  if (linked && !wasLinked && g_muted) {
+    g_transport->sendButton("mute", "on");
+  }
+  wasLinked = linked;
 
   static uint32_t lostSinceMs = 0;
   if (g_transport->connected() || !g_wifi.connected()) {

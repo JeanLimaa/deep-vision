@@ -67,7 +67,7 @@ bool AlertBuzzer::updateDistance(float distanceCm) {
 }
 
 void AlertBuzzer::update() {
-  if (_pin < 0) {
+  if (_pin < 0 || _muted) {
     return;
   }
 
@@ -104,7 +104,7 @@ void AlertBuzzer::update() {
 }
 
 void AlertBuzzer::chirp(uint16_t frequency, uint16_t durationMs) {
-  if (_pin < 0 || _volumeStep == 0) {
+  if (_pin < 0 || _volumeStep == 0 || _muted) {
     return;
   }
   toneOn(frequency);
@@ -116,9 +116,16 @@ void AlertBuzzer::silence() {
   toneOff();
 }
 
+void AlertBuzzer::setMuted(bool muted) {
+  _muted = muted;
+  if (muted) {
+    silence();
+  }
+}
+
 void AlertBuzzer::playBlocking(const uint16_t* frequencies, size_t count, uint16_t toneMs,
                                uint16_t gapMs) {
-  if (_pin < 0) {
+  if (_pin < 0 || _muted) {
     return;
   }
   // Com volume zero o aviso ainda precisa ser ouvido: e o unico retorno que o

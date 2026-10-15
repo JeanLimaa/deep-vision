@@ -99,6 +99,9 @@
 // --- Botoes ---
 #define BUTTON_DEBOUNCE_MS 40
 #define BUTTON_LONG_PRESS_MS 900
+// Janela para o segundo toque do toque duplo. E tambem o atraso do toque
+// simples, que so e entregue depois dela.
+#define BUTTON_MULTI_TAP_MS 350
 // Segurar o start/stop por este tempo apaga a rede salva e reinicia no modo de
 // configuracao. Longe o bastante do toque longo para nao acontecer sem querer.
 #define BUTTON_RESET_HOLD_MS 10000

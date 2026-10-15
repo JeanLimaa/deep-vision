@@ -140,6 +140,28 @@ async def test_start_stop_button_toggles_the_session(client):
     assert session.active
 
 
+async def test_mute_button_sets_an_explicit_state(client):
+    http_client, container = client
+    await http_client.post(
+        "/api/v1/ingest/telemetry", json={"device_id": "sim-01", "sensors": []}
+    )
+    session = container.registry.get("sim-01")
+
+    # Explicito, nao alternancia: repetir "on" nao desfaz o mute.
+    for _ in range(2):
+        await http_client.post(
+            "/api/v1/ingest/button",
+            json={"device_id": "sim-01", "button": "mute", "action": "on"},
+        )
+        assert not session.active
+
+    await http_client.post(
+        "/api/v1/ingest/button",
+        json={"device_id": "sim-01", "button": "mute", "action": "off"},
+    )
+    assert session.active
+
+
 async def test_paused_session_drops_frames(client, jpeg_frame):
     http_client, container = client
     await http_client.post(

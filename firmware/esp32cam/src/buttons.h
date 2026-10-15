@@ -25,6 +25,8 @@ struct ButtonEvent {
   // Segurado por BUTTON_RESET_HOLD_MS. Chega depois do toque longo do mesmo
   // aperto, ainda com o botao pressionado.
   bool veryLongPress = false;
+  // Toques curtos seguidos (so no start/stop): 1 = toque simples, 2 = duplo.
+  uint8_t taps = 1;
 };
 
 class ButtonPanel {
@@ -41,7 +43,9 @@ class ButtonPanel {
     bool pressed = false;
     bool longFired = false;
     bool veryLongFired = false;
+    uint8_t taps = 0;
     uint32_t changedAtMs = 0;
+    uint32_t releasedAtMs = 0;
   };
 
   State _states[static_cast<uint8_t>(Button::Count)];

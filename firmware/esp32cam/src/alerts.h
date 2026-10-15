@@ -39,6 +39,11 @@ class AlertBuzzer {
 
   void silence();
 
+  /// Mute total, escolha do usuario: cala inclusive o alerta de obstaculo.
+  /// Nao e salvo -- a placa sempre liga com som.
+  void setMuted(bool muted);
+  bool muted() const { return _muted; }
+
   /// Toca uma sequencia de notas e so retorna no fim. Para avisos raros (rede
   /// conectada, reset); bloqueia o laco por algumas centenas de ms.
   void playBlocking(const uint16_t* frequencies, size_t count, uint16_t toneMs = 110,
@@ -56,4 +61,5 @@ class AlertBuzzer {
   uint32_t _lastToggleMs = 0;
   uint32_t _chirpUntilMs = 0;
   bool _toneActive = false;
+  bool _muted = false;
 };

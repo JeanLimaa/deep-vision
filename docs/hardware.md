@@ -304,6 +304,26 @@ firmware controla o volume pelo *duty cycle* do PWM (0–50%).
 GPIO 2 ── botão ── GND        (pull-up interno, ativo em nível baixo)
 ```
 
+Sem microfone, o botão único da ESP32-CAM acumula as funções:
+
+| Gesto | Ação | Retorno |
+|---|---|---|
+| 1 toque | "o que tem na frente?": o servidor descreve a cena | bipe curto, depois a fala |
+| 2 toques | **mute total**, liga e desliga: sem voz e sem bipe nenhum | entrar: tom grave longo · sair: três notas subindo |
+| toque longo (~1 s) | pausa ou retoma a voz; **os bipes de obstáculo continuam** | agudo = retomou · grave = pausou |
+| segurar 10 s | apaga a rede Wi-Fi salva | três notas descendo |
+
+- O toque simples é entregue ~0,35 s depois de soltar: é o tempo de saber que
+  não vem um segundo toque.
+- Sem conexão com o servidor, o toque simples responde com um bipe grave, para o
+  usuário não ficar esperando uma fala que não vem.
+- **O mute total desliga também o alerta de obstáculo.** É escolha do usuário,
+  para quando está parado (aula, reunião). Por isso: só o toque duplo sai do
+  mute (os outros gestos ficam mudos), e o mute **não é salvo** — a placa sempre
+  liga com som.
+- Com microfone (XIAO ESP32-S3), o toque simples grava um comando de voz no lugar
+  da descrição.
+
 ### MAX98357A (quando chegar, perfil `esp32s3_sense`)
 
 | MAX98357A | XIAO ESP32-S3 |
