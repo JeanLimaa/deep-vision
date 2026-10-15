@@ -38,8 +38,9 @@ uv run python training/analyze_events.py --csv runs/ensaio-01.csv
 
 1. **Rede.** Wi-Fi de faculdade costuma isolar os aparelhos entre si e exigir
    login em página, que a ESP32 não faz. Use o roteador do celular ou o
-   "Hotspot móvel" do Windows; ponha o IP do notebook nessa rede em
-   `SERVER_HOST` (`secrets.h`) e libere a porta 8000 no firewall.
+   "Hotspot móvel" do Windows. Configure a placa nessa rede pelo portal
+   (`AVS-Config`); o servidor é achado sozinho. Libere a porta 8000 (TCP) e o
+   mDNS (UDP 5353) no firewall.
 2. **Servidor gravando tudo** (PowerShell, em `server/`):
 
    ```powershell

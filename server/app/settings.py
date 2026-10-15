@@ -26,6 +26,11 @@ class ServerSettings(BaseModel):
     # Token compartilhado com o firmware. Vazio = autenticacao desabilitada (dev).
     device_token: str = ""
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    # Anuncia o servidor na rede local (mDNS, servico _avs._tcp). E assim que o
+    # ESP32 acha o PC sem IP fixo no firmware. ``port`` precisa ser a mesma
+    # passada ao uvicorn (--port), porque e ela que vai no anuncio.
+    mdns_enabled: bool = True
+    mdns_name: str = "Sistema Assistivo"
 
 
 class VisionSettings(BaseModel):

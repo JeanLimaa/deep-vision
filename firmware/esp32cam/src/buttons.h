@@ -22,6 +22,9 @@ const char* buttonName(Button button);
 struct ButtonEvent {
   Button button;
   bool longPress;
+  // Segurado por BUTTON_RESET_HOLD_MS. Chega depois do toque longo do mesmo
+  // aperto, ainda com o botao pressionado.
+  bool veryLongPress = false;
 };
 
 class ButtonPanel {
@@ -37,6 +40,7 @@ class ButtonPanel {
   struct State {
     bool pressed = false;
     bool longFired = false;
+    bool veryLongFired = false;
     uint32_t changedAtMs = 0;
   };
 

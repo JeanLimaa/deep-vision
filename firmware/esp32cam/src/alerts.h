@@ -39,6 +39,11 @@ class AlertBuzzer {
 
   void silence();
 
+  /// Toca uma sequencia de notas e so retorna no fim. Para avisos raros (rede
+  /// conectada, reset); bloqueia o laco por algumas centenas de ms.
+  void playBlocking(const uint16_t* frequencies, size_t count, uint16_t toneMs = 110,
+                    uint16_t gapMs = 60);
+
  private:
   Zone classify(float distanceCm) const;
   void toneOn(uint16_t frequency);

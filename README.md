@@ -150,8 +150,7 @@ critérios de aceite e lista de compras por prioridade em
 
 ```bat
 cd firmware\esp32cam
-copy include\secrets.example.h include\secrets.h
-:: edite secrets.h com o SSID, a senha e o IP do PC que roda o servidor
+:: rede e servidor: configurados pelo celular no primeiro uso (rede "AVS-Config")
 pio run -e esp32cam -t upload
 pio device monitor
 ```

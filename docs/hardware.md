@@ -82,11 +82,12 @@ emite sempre a mesma nota, então os três bipes de teste sairão iguais.
 Trocando o ambiente, o mesmo hardware passa a conversar com o servidor:
 
 ```bat
-copy include\secrets.example.h include\secrets.h
-:: edite secrets.h: SSID, senha e IP do PC que roda o servidor
 pio run -e esp32cam -t upload    :: ou esp32devkit, se a placa não tiver câmera
 pio device monitor
 ```
+
+Não há rede nem IP para preencher no código: no primeiro uso a placa pede a rede
+pelo celular e encontra o servidor sozinha (ver "Rede Wi-Fi e servidor", abaixo).
 
 Com a ESP32-CAM, isso já é o pipeline inteiro: vídeo + sonar saindo do
 dispositivo real. Sem câmera (`esp32devkit`), chega só a telemetria do sonar e o
@@ -96,10 +97,56 @@ no mesmo servidor.
 O que observar no painel: a zona mudando conforme o sonar, os objetos detectados
 com direção e distância, e as falas aparecendo no log.
 
-Se o `[wifi] falhou` aparecer no monitor serial, o dispositivo continua útil — o
-alerta de obstáculo é local e não depende de rede. Confira o IP em `secrets.h`
-(`ipconfig` no PC), que o PC e o ESP32 estão na mesma rede, e libere a porta 8000
-no firewall do Windows.
+Sem rede, o dispositivo continua útil — o alerta de obstáculo é local e não
+depende dela. Se a placa conectar mas não achar o servidor (`[mdns] nenhum
+servidor anunciado` no monitor), confira que o PC e a placa estão na mesma rede e
+que o firewall libera a porta 8000 (TCP) e o mDNS (UDP 5353).
+
+## Rede Wi-Fi e servidor
+
+A rede não fica gravada no firmware. Ela é escolhida pelo celular e salva na
+memória da placa, que sobrevive a desligar e a regravar o firmware.
+
+**Primeiro uso**
+
+1. Ligue a placa. Sem rede salva, ela cria a rede **`AVS-Config`** e toca **dois
+   bipes graves a cada 4 s**.
+2. No celular, conecte na `AVS-Config`. A página de configuração abre sozinha (se
+   não abrir, acesse `192.168.4.1` no navegador).
+3. Toque em **Configure WiFi**, escolha a rede e digite a senha. O campo **IP do
+   servidor** pode ficar em branco.
+4. Salve. A placa conecta e toca **dois bipes subindo**.
+
+**O servidor é encontrado sozinho.** Ele se anuncia na rede local por mDNS
+(serviço `_avs._tcp`, em `server/app/discovery.py`), e a placa usa o IP anunciado
+que estiver na mesma sub-rede que ela. Se o PC trocar de IP, a placa procura de
+novo depois de 30 s sem resposta. Em redes que bloqueiam mDNS, digite o IP do PC
+no portal (ou fixe `SERVER_HOST` em `secrets.h`, que é opcional).
+
+**Bipes da rede**
+
+| Bipe | Significado |
+|---|---|
+| dois subindo | conectou na rede |
+| dois descendo | perdeu a rede |
+| dois graves a cada 4 s | modo de configuração: aguardando o celular |
+| três descendo | rede apagada; reiniciando |
+
+**Trocar de rede.** Segure o botão start/stop por **10 segundos**: a placa apaga a
+rede salva, toca três bipes descendo e reinicia no modo de configuração. (Com 1 s
+o mesmo botão já alterna a transmissão; os 10 s não acontecem por acidente.)
+
+**Se a rede salva falhar** (roteador desligado, senha trocada), a placa abre o
+portal sozinha depois de ~20 s. Se ninguém configurar em 3 minutos, ela reinicia e
+tenta a rede salva de novo — uma queda temporária do roteador não a deixa presa
+no modo de configuração.
+
+**Firewall do Windows.** Uma vez, num PowerShell como administrador:
+
+```powershell
+New-NetFirewallRule -DisplayName "TCC 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+New-NetFirewallRule -DisplayName "TCC mDNS" -Direction Inbound -Protocol UDP -LocalPort 5353 -Action Allow
+```
 
 ## Placas suportadas
 
@@ -272,13 +319,12 @@ GPIO 2 ── botão ── GND        (pull-up interno, ativo em nível baixo)
 
 ```bat
 cd firmware\esp32cam
-copy include\secrets.example.h include\secrets.h
 pio run -e esp32cam -t upload
 pio device monitor
 ```
 
-O `SERVER_HOST` em `secrets.h` é o IP do computador que roda o servidor —
-confira com `ipconfig` e libere a porta 8000 no firewall do Windows.
+A rede é configurada pelo celular depois de gravar (ver "Rede Wi-Fi e servidor").
+`secrets.h` é opcional: só serve para fixar o IP do servidor ou o token.
 
 ### Com a placa-mãe ESP32-CAM-MB
 

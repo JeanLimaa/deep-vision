@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import routes_control, routes_ingest, routes_media
 from app.container import build_container
+from app.discovery import ServiceAnnouncer
 from app.settings import Settings, get_settings
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -45,6 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         container = build_container(settings)
         app.state.container = container
         await container.start()
+        announcer = None
+        if settings.server.mdns_enabled:
+            announcer = ServiceAnnouncer(settings.server.mdns_name, settings.server.port)
+            await announcer.start()
         logging.getLogger(__name__).info(
             "Servidor pronto | detector=%s tts=%s stt=%s audio=%s",
             container.detector.name,
@@ -55,6 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            if announcer is not None:
+                await announcer.stop()
             await container.stop()
 
     app = FastAPI(

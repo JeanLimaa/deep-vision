@@ -76,9 +76,13 @@ String telemetryJson(float distanceCm, Zone zone, uint8_t volumeStep, bool withD
 
 class WebSocketTransport : public Transport {
  public:
-  bool begin() override {
-    _client.begin(SERVER_HOST, SERVER_PORT,
-                  WS_PATH "?device_id=" DEVICE_ID "&token=" DEVICE_TOKEN);
+  bool begin(const String& host, uint16_t port) override {
+    if (_started) {
+      _client.disconnect();
+      _connected = false;
+    }
+    _started = true;
+    _client.begin(host, port, WS_PATH "?device_id=" DEVICE_ID "&token=" DEVICE_TOKEN);
     _client.setReconnectInterval(RECONNECT_INTERVAL_MS);
     _client.enableHeartbeat(WS_HEARTBEAT_MS, WS_HEARTBEAT_MS / 3, 2);
     _client.onEvent([this](WStype_t type, uint8_t* payload, size_t length) {
@@ -210,6 +214,7 @@ class WebSocketTransport : public Transport {
   void onAudioFrame(const uint8_t* data, size_t length);
 
   WebSocketsClient _client;
+  bool _started = false;
   bool _connected = false;
 };
 
@@ -217,8 +222,8 @@ class WebSocketTransport : public Transport {
 
 class HttpTransport : public Transport {
  public:
-  bool begin() override {
-    _base = String("http://") + SERVER_HOST + ":" + String(SERVER_PORT);
+  bool begin(const String& host, uint16_t port) override {
+    _base = String("http://") + host + ":" + String(port);
     return true;
   }
 

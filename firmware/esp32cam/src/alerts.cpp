@@ -116,6 +116,25 @@ void AlertBuzzer::silence() {
   toneOff();
 }
 
+void AlertBuzzer::playBlocking(const uint16_t* frequencies, size_t count, uint16_t toneMs,
+                               uint16_t gapMs) {
+  if (_pin < 0) {
+    return;
+  }
+  // Com volume zero o aviso ainda precisa ser ouvido: e o unico retorno que o
+  // usuario tem do estado da rede.
+  const uint8_t savedVolume = _volumeStep;
+  _volumeStep = max<uint8_t>(_volumeStep, 5);
+  _chirpUntilMs = 0;
+  for (size_t i = 0; i < count; ++i) {
+    toneOn(frequencies[i]);
+    delay(toneMs);
+    toneOff();
+    delay(gapMs);
+  }
+  _volumeStep = savedVolume;
+}
+
 void AlertBuzzer::toneOn(uint16_t frequency) {
   if (_pin < 0) {
     return;

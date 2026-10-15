@@ -1,7 +1,7 @@
 1. Ligar o USB e ver se a porta aparece
 pio device list
 
-2. Preencher o secrets.h
+2. Configurar a rede pelo celular (rede "AVS-Config"; ver docs/hardware.md)
 
 3. Iniciar o servidor e liberar a porta 8000
 cd server
@@ -9,6 +9,8 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Uma vez só, num PowerShell como administrador:
 New-NetFirewallRule -DisplayName "TCC 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+
+New-NetFirewallRule -DisplayName "TCC mDNS" -Direction Inbound -Protocol UDP -LocalPort 5353 -Action Allow
 
 (para simular na webcam):
 python simulator/virtual_device.py --source 0 --preview

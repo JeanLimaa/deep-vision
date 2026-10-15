@@ -19,6 +19,7 @@ def settings(tmp_path) -> Settings:
     return Settings(
         environment="dev",
         log_level="WARNING",
+        server={"mdns_enabled": False},
         vision={"backend": "fake", "warmup_on_startup": False, "max_inference_fps": 0},
         tts={"engine": "null"},
         speech={"stt_engine": "null"},

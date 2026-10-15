@@ -34,7 +34,9 @@ class Transport {
  public:
   virtual ~Transport() = default;
 
-  virtual bool begin() = 0;
+  /// Aponta o canal para o servidor. Pode ser chamado de novo quando o
+  /// endereco muda (o PC trocou de IP); a conexao anterior e encerrada.
+  virtual bool begin(const String& host, uint16_t port) = 0;
   virtual void loop() = 0;
   virtual bool connected() const = 0;
 

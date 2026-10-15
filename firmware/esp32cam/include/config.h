@@ -10,7 +10,25 @@
 
 #pragma once
 
+// secrets.h e opcional. A rede Wi-Fi e o endereco do servidor sao configurados
+// pelo celular no primeiro uso (ver network.h); o arquivo so sobrescreve os
+// padroes abaixo -- util em desenvolvimento, para fixar o IP do PC.
+#if __has_include("secrets.h")
 #include "secrets.h"
+#endif
+
+// Ultimo recurso para achar o servidor, quando nem o portal nem o mDNS deram um
+// endereco. Vazio = depende so da descoberta automatica.
+#ifndef SERVER_HOST
+#define SERVER_HOST ""
+#endif
+#ifndef SERVER_PORT
+#define SERVER_PORT 8000
+#endif
+// Deve ser igual a AVS_SERVER__DEVICE_TOKEN no servidor. Vazio = sem autenticacao.
+#ifndef DEVICE_TOKEN
+#define DEVICE_TOKEN ""
+#endif
 
 // --- Identificacao ---
 #define DEVICE_ID "esp32cam-01"
@@ -81,6 +99,9 @@
 // --- Botoes ---
 #define BUTTON_DEBOUNCE_MS 40
 #define BUTTON_LONG_PRESS_MS 900
+// Segurar o start/stop por este tempo apaga a rede salva e reinicia no modo de
+// configuracao. Longe o bastante do toque longo para nao acontecer sem querer.
+#define BUTTON_RESET_HOLD_MS 10000
 
 // --- Rede ---
 // Potencia maxima de transmissao. O padrao (19,5 dBm) puxa picos que derrubam a
@@ -91,6 +112,27 @@
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define RECONNECT_INTERVAL_MS 3000
 #define WS_HEARTBEAT_MS 15000
+
+// --- Configuracao pelo celular (portal) ---
+// Sem rede salva, ou se ela nao responder, a placa cria esta rede. Conectando
+// o celular nela, a pagina de configuracao abre sozinha.
+#define PORTAL_AP_NAME "AVS-Config"
+// Vazio = rede aberta. Com senha, ela precisa de 8 caracteres ou mais (WPA2).
+#define PORTAL_AP_PASSWORD ""
+// Com uma rede ja salva, o portal fica aberto por este tempo e a placa reinicia
+// para tentar a rede de novo: uma queda temporaria do roteador nao a deixa presa
+// no modo de configuracao. Sem rede salva, o portal nao fecha.
+#define PORTAL_TIMEOUT_S 180
+
+// --- Descoberta do servidor (mDNS) ---
+// O servidor se anuncia como _avs._tcp na rede local (app/discovery.py).
+#define MDNS_SERVICE "_avs"
+#define MDNS_PROTO "_tcp"
+#define MDNS_QUERY_TIMEOUT_MS 3000
+#define DISCOVERY_RETRY_MS 10000
+// Servidor achado por mDNS e sem resposta ha este tempo: procura de novo, porque
+// o IP do PC pode ter mudado (DHCP).
+#define SERVER_REDISCOVER_AFTER_MS 30000
 
 // --- Audio (somente placas com amplificador I2S) ---
 #define AUDIO_SAMPLE_RATE 16000

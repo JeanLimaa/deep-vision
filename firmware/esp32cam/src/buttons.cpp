@@ -93,6 +93,7 @@ bool ButtonPanel::poll(ButtonEvent& event) {
       }
       if (!pressed) {
         state.longFired = false;
+        state.veryLongFired = false;
       }
       continue;
     }
@@ -100,6 +101,13 @@ bool ButtonPanel::poll(ButtonEvent& event) {
     if (pressed && !state.longFired && nowMs - state.changedAtMs >= BUTTON_LONG_PRESS_MS) {
       state.longFired = true;
       event = {static_cast<Button>(i), true};
+      return true;
+    }
+
+    if (pressed && state.longFired && !state.veryLongFired &&
+        nowMs - state.changedAtMs >= BUTTON_RESET_HOLD_MS) {
+      state.veryLongFired = true;
+      event = {static_cast<Button>(i), true, true};
       return true;
     }
   }

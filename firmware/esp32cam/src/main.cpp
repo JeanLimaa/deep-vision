@@ -27,6 +27,7 @@
 #include "speaker.h"
 #include "transport.h"
 #include "ultrasonic.h"
+#include "wifi_setup.h"
 
 namespace {
 
@@ -34,7 +35,15 @@ Camera g_camera;
 Ultrasonic g_sonar(PIN_SONAR_TRIG, PIN_SONAR_ECHO);
 AlertBuzzer g_buzzer(PIN_BUZZER);
 ButtonPanel g_buttons;
+WifiSetup g_wifi;
 Transport* g_transport = nullptr;
+/// O transporte so e iniciado quando o endereco do servidor e conhecido.
+bool g_transportStarted = false;
+
+// Avisos sonoros do estado da rede: o usuario nao ve tela nem LED.
+constexpr uint16_t kToneOnline[] = {1800, 2600};
+constexpr uint16_t kToneOffline[] = {2600, 1800};
+constexpr uint16_t kToneReset[] = {2600, 1800, 1200};
 
 /// Estado operacional do dispositivo (o botao start/stop alterna ``streaming``).
 bool g_streaming = true;
@@ -54,28 +63,7 @@ void setStatusLed(bool on) {
 #endif
 }
 
-void connectWiFi() {
-  Serial.printf("[wifi] conectando em %s\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setTxPower(WIFI_TX_POWER);  // limita o pico de corrente (ver config.h)
-  WiFi.setSleep(false);  // o modo de economia adiciona centenas de ms de latencia
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  const uint32_t startedAt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
-    delay(250);
-    Serial.print(".");
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[wifi] conectado | ip=%s rssi=%d dBm\n", WiFi.localIP().toString().c_str(),
-                  WiFi.RSSI());
-  } else {
-    // Sem rede o dispositivo continua util: o alerta de obstaculo e local.
-    Serial.println("[wifi] falhou; seguindo apenas com o alerta local de proximidade");
-  }
-}
+bool serverLinkUp() { return g_transportStarted && g_transport->connected(); }
 
 /// Acao vinda do servidor: fala sintetizada, bipe ou ajuste de configuracao.
 void handleServerAction(const ServerAction& action) {
@@ -97,6 +85,14 @@ void handleServerAction(const ServerAction& action) {
 }
 
 void handleButton(const ButtonEvent& event) {
+  if (event.veryLongPress) {
+    if (event.button == Button::StartStop) {
+      g_buzzer.playBlocking(kToneReset, 3, 180, 80);
+      g_wifi.forgetAndRestart();
+    }
+    return;
+  }
+
   Serial.printf("[botao] %s%s\n", buttonName(event.button), event.longPress ? " (longo)" : "");
 
   switch (event.button) {
@@ -136,13 +132,13 @@ void handleButton(const ButtonEvent& event) {
       break;
   }
 
-  if (g_transport != nullptr) {
+  if (serverLinkUp()) {
     g_transport->sendButton(buttonName(event.button), event.longPress);
   }
 }
 
 void pumpCamera() {
-  if (!g_streaming || g_transport == nullptr || !g_transport->connected()) {
+  if (!g_streaming || !serverLinkUp()) {
     return;
   }
   const uint32_t nowMs = millis();
@@ -173,7 +169,7 @@ void pumpSonar() {
   }
   g_lastTelemetryMs = nowMs;
 
-  if (g_transport != nullptr && g_transport->connected()) {
+  if (serverLinkUp()) {
     g_transport->sendTelemetry(g_sonar.distanceCm(), g_buzzer.zone(), g_buzzer.volumeStep());
   }
 }
@@ -181,7 +177,7 @@ void pumpSonar() {
 void pumpMicrophone() {
   const uint8_t* pcm = nullptr;
   size_t length = 0;
-  if (g_microphone.poll(pcm, length) && g_transport != nullptr) {
+  if (g_microphone.poll(pcm, length) && serverLinkUp()) {
     Serial.printf("[mic] comando capturado (%u bytes)\n", static_cast<unsigned>(length));
     g_transport->sendAudio(pcm, length);
     g_buzzer.chirp(2000, 60);
@@ -227,7 +223,9 @@ void pumpCameraRetry() {
 /// o radio estiver caido o alerta local do sonar continua funcionando.
 void pumpNetworkWatchdog() {
   static uint32_t offlineSinceMs = 0;
-  if (WiFi.status() == WL_CONNECTED) {
+  // Com o portal aberto a placa esta offline de proposito; quem decide o
+  // reinicio e o tempo limite do portal (PORTAL_TIMEOUT_S).
+  if (WiFi.status() == WL_CONNECTED || g_wifi.portalActive()) {
     offlineSinceMs = 0;
     return;
   }
@@ -243,6 +241,60 @@ void pumpNetworkWatchdog() {
   }
 }
 
+/// Liga o transporte ao servidor quando o endereco aparece ou muda, e pede uma
+/// nova busca quando o servidor encontrado some (o IP do PC pode ter mudado).
+void pumpServer() {
+  ServerEndpoint endpoint;
+  if (g_wifi.takeEndpoint(endpoint)) {
+    Serial.printf("[servidor] %s:%u\n", endpoint.host.c_str(), endpoint.port);
+    g_transport->begin(endpoint.host, endpoint.port);
+    g_transportStarted = true;
+  }
+  if (!g_transportStarted) {
+    return;
+  }
+
+  static uint32_t lostSinceMs = 0;
+  if (g_transport->connected() || !g_wifi.connected()) {
+    lostSinceMs = 0;
+    return;
+  }
+  const uint32_t nowMs = millis();
+  if (lostSinceMs == 0) {
+    lostSinceMs = nowMs;
+  } else if (nowMs - lostSinceMs >= SERVER_REDISCOVER_AFTER_MS) {
+    g_wifi.requestRediscovery();
+    lostSinceMs = nowMs;
+  }
+}
+
+/// Bipes do estado da rede: dois agudos subindo ao conectar, descendo ao cair,
+/// e, com o portal aberto, dois graves a cada 4 s ("esperando configuracao").
+void pumpNetworkBeeps() {
+  static bool wasOnline = false;
+  const bool online = g_wifi.connected();
+  if (online != wasOnline) {
+    wasOnline = online;
+    g_buzzer.playBlocking(online ? kToneOnline : kToneOffline, 2);
+  }
+
+  static uint32_t lastPortalBeepMs = 0;
+  static bool secondBeepPending = false;
+  if (!g_wifi.portalActive()) {
+    secondBeepPending = false;
+    return;
+  }
+  const uint32_t nowMs = millis();
+  if (secondBeepPending && nowMs - lastPortalBeepMs >= 250) {
+    g_buzzer.chirp(1200, 90);
+    secondBeepPending = false;
+  } else if (!secondBeepPending && nowMs - lastPortalBeepMs >= 4000) {
+    g_buzzer.chirp(1200, 90);
+    lastPortalBeepMs = nowMs;
+    secondBeepPending = true;
+  }
+}
+
 void logStatus() {
   const uint32_t nowMs = millis();
   if (nowMs - g_lastStatusMs < 5000) {
@@ -252,7 +304,7 @@ void logStatus() {
   Serial.printf("[status] quadros=%lu zona=%s dist=%.1fcm heap=%u rssi=%d\n",
                 static_cast<unsigned long>(g_frameSequence), zoneName(g_buzzer.zone()),
                 g_sonar.distanceCm(), ESP.getFreeHeap(), WiFi.RSSI());
-  setStatusLed(g_transport != nullptr && g_transport->connected());
+  setStatusLed(serverLinkUp());
 }
 
 }  // namespace
@@ -284,7 +336,9 @@ void setup() {
   // corrente do boot; com a camera ainda desligada, esse pico acontece sozinho.
   // Fazer os dois juntos e o que derruba a placa quando a alimentacao esta no
   // limite -- e foi o que o log mostrou ("Brownout detector was triggered").
-  connectWiFi();
+  // Sem rede salva (ou se ela falhar) abre o portal de configuracao, que nao
+  // bloqueia: o sonar continua alertando enquanto alguem configura pelo celular.
+  g_wifi.begin();
   delay(200);
 
   if (!g_camera.begin()) {
@@ -295,14 +349,17 @@ void setup() {
 
   g_transport = createTransport();
   g_transport->onAction(handleServerAction);
-  g_transport->begin();
 
   g_buzzer.chirp(2600, 120);
   Serial.println("[setup] pronto");
 }
 
 void loop() {
-  g_transport->loop();
+  g_wifi.loop();
+  pumpServer();
+  if (g_transportStarted) {
+    g_transport->loop();
+  }
 
   ButtonEvent event;
   if (g_buttons.poll(event)) {
@@ -314,6 +371,7 @@ void loop() {
   pumpCameraRetry();
   pumpMicrophone();
   pumpNetworkWatchdog();
+  pumpNetworkBeeps();
   logStatus();
 
   // Cede o processador para a pilha Wi-Fi; sem isso o watchdog dispara.
